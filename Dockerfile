@@ -6,6 +6,7 @@ COPY prisma ./prisma
 RUN npm run db:generate
 COPY nest-cli.json tsconfig.json ./
 COPY src ./src
+COPY public ./public
 RUN npm run build
 RUN npm prune --omit=dev
 
@@ -16,6 +17,7 @@ RUN apk add --no-cache curl && addgroup -S gateway && adduser -S gateway -G gate
 COPY --from=build --chown=gateway:gateway /app/node_modules ./node_modules
 COPY --from=build --chown=gateway:gateway /app/dist ./dist
 COPY --from=build --chown=gateway:gateway /app/prisma ./prisma
+COPY --from=build --chown=gateway:gateway /app/public ./public
 COPY --from=build --chown=gateway:gateway /app/package.json ./package.json
 USER gateway
 EXPOSE 4100

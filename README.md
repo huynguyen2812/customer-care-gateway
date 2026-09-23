@@ -2,6 +2,11 @@
 
 Independent, tenant-isolated delivery gateway for operating PETCLINIC and B2B SALE.
 
+The production root serves a Vietnamese administration console. It uses an HttpOnly signed session,
+same-site cookies and CSRF protection; the Platform Control HMAC secret is never exposed to the
+browser. Configure `ADMIN_USERNAME`, a scrypt `ADMIN_PASSWORD_HASH`, and a random
+`ADMIN_SESSION_SECRET` before enabling the console.
+
 Phase 2 implements the platform installation boundary, signed machine-to-machine requests,
 idempotent care jobs, approved message templates, consent/opt-out policy, quiet hours, quotas,
 audit redaction, a mock channel and an internal-only personal-Zalo sender adapter. The adapter has

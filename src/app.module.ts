@@ -21,10 +21,15 @@ import { TemplateService } from './templates/template.service';
 import { PetclinicClientService } from './petclinic/petclinic-client.service';
 import { PetclinicSyncService } from './petclinic/petclinic-sync.service';
 import { HealthController } from './health.controller';
+import { AdminAuthController } from './admin/admin-auth.controller';
+import { AdminAuthGuard } from './admin/admin-auth.guard';
+import { AdminAuthService } from './admin/admin-auth.service';
+import { AdminController } from './admin/admin.controller';
+import { AdminService } from './admin/admin.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true })],
-  controllers: [InstallationsController, CareJobsController, HealthController],
+  controllers: [InstallationsController, CareJobsController, HealthController, AdminAuthController, AdminController],
   providers: [
     PrismaService,
     CryptoService,
@@ -44,6 +49,9 @@ import { HealthController } from './health.controller';
     CareWorkerService,
     WorkerRuntimeService,
     MaintenanceService,
+    AdminAuthGuard,
+    AdminAuthService,
+    AdminService,
   ],
 })
 export class AppModule {}
