@@ -26,10 +26,22 @@ import { AdminAuthGuard } from './admin/admin-auth.guard';
 import { AdminAuthService } from './admin/admin-auth.service';
 import { AdminController } from './admin/admin.controller';
 import { AdminService } from './admin/admin.service';
+import { CrmAuthController } from './crm/crm-auth.controller';
+import { CrmAuthGuard } from './crm/crm-auth.guard';
+import { CrmController } from './crm/crm.controller';
+import { CrmDataService } from './crm/crm-data.service';
+import { CrmSessionService } from './crm/crm-session.service';
+import { PlatformClientService } from './crm/platform-client.service';
+import { PlatformEventsController } from './crm/platform-events.controller';
+import { SenderHealthController } from './channel/sender-health.controller';
+import { TenantAccessService } from './crm/tenant-access.service';
+import { AccountSelectorService } from './delivery/account-selector.service';
+import { QuotaService } from './delivery/quota.service';
+import { ZaloAccountsService } from './crm/zalo-accounts.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true })],
-  controllers: [InstallationsController, CareJobsController, HealthController, AdminAuthController, AdminController],
+  controllers: [InstallationsController, CareJobsController, HealthController, AdminAuthController, AdminController, CrmAuthController, CrmController, PlatformEventsController, SenderHealthController],
   providers: [
     PrismaService,
     CryptoService,
@@ -52,6 +64,14 @@ import { AdminService } from './admin/admin.service';
     AdminAuthGuard,
     AdminAuthService,
     AdminService,
+    PlatformClientService,
+    CrmSessionService,
+    CrmAuthGuard,
+    CrmDataService,
+    TenantAccessService,
+    AccountSelectorService,
+    QuotaService,
+    ZaloAccountsService,
   ],
 })
 export class AppModule {}

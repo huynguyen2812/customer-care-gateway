@@ -1,3 +1,4 @@
+import { TenantAccessService } from '../src/crm/tenant-access.service';
 import { createServer, Server } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { PrismaClient, SourceProduct } from '@prisma/client';
@@ -10,7 +11,7 @@ describe('operating PETCLINIC sync (real PostgreSQL + loopback source API)', () 
   const prisma = new PrismaClient();
   const crypto = new CryptoService();
   const client = new PetclinicClientService(crypto);
-  const jobs = new CareJobsService(prisma as any, crypto);
+  const jobs = new CareJobsService(prisma as any, crypto, new TenantAccessService(prisma as any));
   const sync = new PetclinicSyncService(prisma as any, crypto, client, jobs);
   let server: Server; let baseUrl = ''; let installationId = '';
   let status = 'SCHEDULED';

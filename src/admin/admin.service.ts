@@ -22,7 +22,7 @@ export class AdminService {
     return this.prisma.installation.findMany({ orderBy: { createdAt: 'desc' }, select: {
       id: true, tenantId: true, sourceProduct: true, status: true, paused: true, dailyQuota: true,
       quietHoursStart: true, quietHoursEnd: true, timezone: true, lastConnectedAt: true, lastError: true, createdAt: true,
-      zaloAccount: { select: { channel: true, displayName: true, status: true, dailySentCount: true, lastConnectedAt: true, lastError: true } },
+      zaloAccounts: { select: { id: true, channel: true, displayName: true, status: true, paused: true, isDefault: true, dailyQuota: true, lastConnectedAt: true, lastError: true } },
       petclinicConnection: { select: { apiBaseUrl: true, apiTenantId: true, allowedBranchIds: true, reminderLeadMinutes: true, active: true, lastSyncAt: true, lastSyncStatus: true, lastError: true } },
       _count: { select: { jobs: true, templates: true, optOuts: true } },
     }});

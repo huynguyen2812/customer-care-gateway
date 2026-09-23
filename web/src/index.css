@@ -1,0 +1,44 @@
+@import '@fontsource/be-vietnam-pro/300.css';
+@import '@fontsource/be-vietnam-pro/400.css';
+@import '@fontsource/be-vietnam-pro/500.css';
+@import '@fontsource/be-vietnam-pro/600.css';
+@import '@fontsource/be-vietnam-pro/700.css';
+@import 'tailwindcss';
+
+/* Design tokens — nguồn: CRM GIAO DIEN.make @ 1b05cd2 (src/index.css) */
+@theme {
+  --font-sans: 'Be Vietnam Pro', 'Inter', system-ui, sans-serif;
+  --color-brand: #0F766E;
+  --color-brand-light: #CCFBF1;
+  --color-brand-dark: #0D5F58;
+  --color-bg: #F6F8F8;
+  --color-surface: #FFFFFF;
+  --color-text: #172B2A;
+  --color-muted: #6B7280;
+  --color-border: #E2E8F0;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-danger: #DC2626;
+  --radius-card: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Be Vietnam Pro', 'Inter', system-ui, sans-serif;
+  background-color: #F6F8F8;
+  color: #172B2A;
+}
+
+:focus-visible { outline: 2px solid #0F766E; outline-offset: 2px; }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+@keyframes crm-skeleton { 0%, 100% { opacity: 1 } 50% { opacity: .45 } }
+.crm-skeleton { animation: crm-skeleton 1.4s ease-in-out infinite; }

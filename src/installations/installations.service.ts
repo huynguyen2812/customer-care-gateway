@@ -62,7 +62,7 @@ export class InstallationsService {
   }
 
   async status(id: string) {
-    const row = await this.prisma.installation.findUnique({ where: { id }, include: { credentials: { select: { clientId: true, secretLast4: true, status: true, expiresAt: true } }, zaloAccount: { select: { channel: true, status: true, lastConnectedAt: true, lastError: true } } } });
+    const row = await this.prisma.installation.findUnique({ where: { id }, include: { credentials: { select: { clientId: true, secretLast4: true, status: true, expiresAt: true } }, zaloAccounts: { select: { id: true, channel: true, status: true, paused: true, lastConnectedAt: true, lastError: true } } } });
     if (!row) throw new NotFoundException();
     return row;
   }
@@ -73,7 +73,7 @@ export class InstallationsService {
     return { enabled };
   }
 
-  async upsertTemplate(id: string, input: Record<string, unknown>, actorId: string) {
+  async upsertTemplate(id: string, input: Record<string, unknown>, actorId: string, actorType = 'PLATFORM_ADMIN') {
     const installation = await this.prisma.installation.findUnique({ where: { id } });
     if (!installation) throw new NotFoundException();
     const code = String(input.code || ''); const body = String(input.body || '');
@@ -82,7 +82,7 @@ export class InstallationsService {
     const placeholders = [...body.matchAll(/{{\s*([a-zA-Z0-9_]+)\s*}}/g)].map((match) => match[1]);
     if (placeholders.some((key) => !allowedVariables.includes(key))) throw new ConflictException('Template placeholder is not allowed');
     const template = await this.prisma.messageTemplate.upsert({ where: { installationId_code: { installationId: id, code } }, create: { installationId: id, code, body, allowedVariables, active: input.active !== false }, update: { body, allowedVariables, active: input.active !== false } });
-    await this.prisma.auditLog.create({ data: { installationId: id, tenantId: installation.tenantId, actorType: 'PLATFORM_ADMIN', actorId, action: 'MESSAGE_TEMPLATE_UPSERTED', targetType: 'MessageTemplate', targetId: template.id, result: 'SUCCESS', metadata: { code } } });
+    await this.prisma.auditLog.create({ data: { installationId: id, tenantId: installation.tenantId, actorType, actorId, action: 'MESSAGE_TEMPLATE_UPSERTED', targetType: 'MessageTemplate', targetId: template.id, result: 'SUCCESS', metadata: { code } } });
     return { id: template.id, code: template.code, active: template.active };
   }
 
@@ -93,8 +93,27 @@ export class InstallationsService {
     let parsed: URL; try { parsed = new URL(senderBaseUrl); } catch { throw new ConflictException('Invalid sender URL'); }
     if (parsed.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(parsed.hostname)) throw new ConflictException('Sender URL must use HTTPS');
     if (!senderClientId || signingKey.length < 32) throw new ConflictException('Invalid sender credential');
-    await this.prisma.zaloAccount.upsert({ where: { installationId: id }, create: { installationId: id, channel: 'PERSONAL_ZALO', status: 'CONNECTED', senderBaseUrl, senderClientId, credentialEnc: this.crypto.encrypt(signingKey), lastConnectedAt: new Date() }, update: { channel: 'PERSONAL_ZALO', status: 'CONNECTED', senderBaseUrl, senderClientId, credentialEnc: this.crypto.encrypt(signingKey), lastConnectedAt: new Date(), lastError: null } });
-    await this.prisma.auditLog.create({ data: { installationId: id, tenantId: installation.tenantId, actorType: 'PLATFORM_ADMIN', actorId, action: 'PERSONAL_ZALO_CONFIGURED', targetType: 'ZaloAccount', targetId: id, result: 'SUCCESS' } });
-    return { installationId: id, channel: 'PERSONAL_ZALO', status: 'CONNECTED', secretStoredEncrypted: true };
+    // Operator/control-plane configuration of a private sender. Accounts are tenant-owned: target an
+    // existing account of this installation's tenant (zaloAccountId), else the account provisioned for
+    // this installation, else create one with an installation routing rule (default if the tenant has none).
+    const caps = input.capabilities && typeof input.capabilities === 'object' ? input.capabilities as Record<string, unknown> : {};
+    const capabilities = { contractVersion: Number(caps.contractVersion) === 2 ? 2 : 1, idempotentSend: caps.idempotentSend === true, recipientPreflight: caps.recipientPreflight === true, qrLogin: caps.qrLogin === true, remoteControl: caps.remoteControl === true };
+    const sender = { channel: 'PERSONAL_ZALO' as const, status: 'CONNECTED' as const, senderBaseUrl, senderClientId, credentialEnc: this.crypto.encrypt(signingKey), capabilities, lastConnectedAt: new Date(), lastError: null, sessionVersion: { increment: 1 } };
+    let account = input.zaloAccountId
+      ? await this.prisma.zaloAccount.findFirst({ where: { id: String(input.zaloAccountId), tenantId: installation.tenantId } })
+      : await this.prisma.zaloAccount.findFirst({ where: { installationId: id, tenantId: installation.tenantId, revokedAt: null }, orderBy: { createdAt: 'asc' } });
+    if (input.zaloAccountId && !account) throw new NotFoundException();
+    if (account) {
+      account = await this.prisma.zaloAccount.update({ where: { id: account.id }, data: sender });
+    } else {
+      account = await this.prisma.$transaction(async (tx) => {
+        const hasDefault = await tx.zaloAccount.count({ where: { tenantId: installation.tenantId, isDefault: true, revokedAt: null } });
+        const created = await tx.zaloAccount.create({ data: { ...sender, sessionVersion: 1, tenantId: installation.tenantId, installationId: id, dailyQuota: installation.dailyQuota, timezone: installation.timezone, isDefault: hasDefault === 0 } });
+        await tx.zaloRoutingRule.create({ data: { tenantId: installation.tenantId, zaloAccountId: created.id, installationId: id, createdBy: actorId.slice(0, 160) } });
+        return created;
+      });
+    }
+    await this.prisma.auditLog.create({ data: { installationId: id, tenantId: installation.tenantId, actorType: 'PLATFORM_ADMIN', actorId, action: 'PERSONAL_ZALO_CONFIGURED', targetType: 'ZaloAccount', targetId: account.id, result: 'SUCCESS', metadata: { capabilities } } });
+    return { installationId: id, zaloAccountId: account.id, channel: 'PERSONAL_ZALO', status: 'CONNECTED', secretStoredEncrypted: true };
   }
 }

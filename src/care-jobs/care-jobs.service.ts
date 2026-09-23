@@ -5,10 +5,11 @@ import { CryptoService } from '../common/crypto.service';
 import { canonicalJson, sha256 } from '../common/canonical';
 import { normalizeVietnamPhone } from '../common/phone';
 import { InstallationContext } from '../auth/auth.types';
+import { TenantAccessService } from '../crm/tenant-access.service';
 
 @Injectable()
 export class CareJobsService {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly tenantAccess: TenantAccessService) {}
 
   private requireScope(ctx: InstallationContext, scope: string): void {
     if (!ctx.scopes.includes(scope)) throw new ForbiddenException('Insufficient scope');
@@ -18,6 +19,8 @@ export class CareJobsService {
     this.requireScope(ctx, 'care:job:create');
     if (input.tenantId && input.tenantId !== ctx.tenantId) throw new ForbiddenException('Credential scope mismatch');
     if (input.sourceProduct !== ctx.sourceProduct) throw new ForbiddenException('Credential scope mismatch');
+    const access = await this.tenantAccess.canCreateJobs(ctx.tenantId);
+    if (!access.ok) throw new ForbiddenException(access.code);
     const required = ['externalReferenceId', 'eventType', 'templateCode', 'scheduledAt', 'idempotencyKey', 'consentStatus'];
     for (const key of required) if (!input[key]) throw new BadRequestException(`${key} is required`);
     if (!input.recipient?.name || !input.recipient?.phone) throw new BadRequestException('recipient name and phone are required');
@@ -41,6 +44,8 @@ export class CareJobsService {
     try {
       const created = await this.prisma.careJob.create({ data: {
         installationId: ctx.installationId, idempotencyKey: String(input.idempotencyKey), requestHash,
+        // Optional branch reference used only for account routing (not part of the idempotency hash).
+        branchId: typeof input.branchId === 'string' && /^[A-Za-z0-9._:-]{1,80}$/.test(input.branchId) ? input.branchId : null,
         externalReferenceId: normalized.externalReferenceId, sourceProduct: ctx.sourceProduct as SourceProduct,
         eventType: normalized.eventType, recipientNameEnc: this.crypto.encrypt(normalized.recipient.name),
         phoneEnc: this.crypto.encrypt(phoneE164), phoneHash, templateCode: normalized.templateCode,

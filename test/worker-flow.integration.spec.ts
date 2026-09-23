@@ -1,3 +1,4 @@
+import { TenantAccessService } from '../src/crm/tenant-access.service';
 import { createServer, Server } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { PrismaClient, SourceProduct } from '@prisma/client';
@@ -10,10 +11,12 @@ import { CareWorkerService } from '../src/worker/care-worker.service';
 import { PersonalZaloAdapter } from '../src/channel/personal-zalo.adapter';
 import { ChannelRouterService } from '../src/channel/channel-router.service';
 import { TemplateService } from '../src/templates/template.service';
+import { AccountSelectorService } from '../src/delivery/account-selector.service';
+import { QuotaService } from '../src/delivery/quota.service';
 
 describe('worker flow (real PostgreSQL + loopback HTTP)', () => {
   const prisma = new PrismaClient(); const crypto = new CryptoService();
-  let server: Server; let baseUrl = ''; let callbackCount = 0; const installationIds: string[] = [];
+  let server: Server; let baseUrl = ''; let callbackCount = 0; const installationIds: string[] = []; const tenantIds: string[] = [];
 
   beforeAll(async () => {
     process.env.PHONE_HASH_PEPPER = randomBytes(32).toString('hex');
@@ -35,6 +38,7 @@ describe('worker flow (real PostgreSQL + loopback HTTP)', () => {
     await prisma.webhookDelivery.deleteMany({ where: { installationId: { in: installationIds } } });
     await prisma.careJob.deleteMany({ where: { installationId: { in: installationIds } } });
     await prisma.installation.deleteMany({ where: { id: { in: installationIds } } });
+    await prisma.zaloAccount.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await prisma.$disconnect(); await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
@@ -44,14 +48,17 @@ describe('worker flow (real PostgreSQL + loopback HTTP)', () => {
       tenantId: randomUUID(), sourceProduct: SourceProduct.PETCLINIC_ESSENTIAL, status: 'ACTIVE',
       scopes: ['care:job:create', 'care:job:read', 'care:job:cancel'], callbackUrl: `${baseUrl}/callback`,
       sourceVerifyUrl: `${baseUrl}/verify`, callbackSecretEnc: crypto.encrypt(secret), quietHoursStart: '00:00', quietHoursEnd: '00:00', dailyQuota: 30,
-    }}); installationIds.push(installation.id);
+    }}); installationIds.push(installation.id); tenantIds.push(installation.tenantId);
+    process.env.MOCK_ADAPTER_ENABLED = 'true';
+    // MOCK is never implicit: the tenant needs an explicit MOCK account (test/local only).
+    await prisma.zaloAccount.create({ data: { tenantId: installation.tenantId, channel: 'MOCK', status: 'CONNECTED', isDefault: true, dailyQuota: 30, displayName: 'Mock QA' } });
     const ctx = { installation, installationId: installation.id, tenantId: installation.tenantId, sourceProduct: installation.sourceProduct, scopes: installation.scopes };
-    const jobs = new CareJobsService(prisma as any, crypto);
+    const jobs = new CareJobsService(prisma as any, crypto, new TenantAccessService(prisma as any));
     const created = await jobs.create(ctx, { sourceProduct: 'PETCLINIC_ESSENTIAL', externalReferenceId: 'appointment:worker-test', eventType: 'APPOINTMENT_REMINDER', recipient: { name: 'Khach Test', phone: '0901234567' }, templateCode: 'PC_APPT_REMINDER_V1', templateVariables: { petName: 'Mit' }, scheduledAt: new Date(Date.now() - 1000).toISOString(), consentStatus: 'GRANTED', idempotencyKey: randomUUID() });
     await prisma.messageTemplate.create({ data: { installationId: installation.id, code: 'PC_APPT_REMINDER_V1', body: 'Nhac lich cho {{petName}}', allowedVariables: ['petName'] } });
     const outbox = new WebhookOutboxService(prisma as any, crypto);
-    const mock = new MockAdapter(); const router = new ChannelRouterService(prisma as any, mock, new PersonalZaloAdapter(prisma as any, crypto));
-    const worker = new CareWorkerService(prisma as any, crypto, router, new SourceVerifierService(), outbox, new TemplateService(prisma as any), {} as any);
+    const mock = new MockAdapter(); const personal = new PersonalZaloAdapter(crypto); const router = new ChannelRouterService(mock, personal);
+    const worker = new CareWorkerService(prisma as any, crypto, router, new SourceVerifierService(), outbox, new TemplateService(prisma as any), {} as any, new TenantAccessService(prisma as any), new AccountSelectorService(prisma as any, personal), new QuotaService(prisma as any));
     expect(await worker.processNext('integration-worker')).toBe(true);
     expect((await prisma.careJob.findUniqueOrThrow({ where: { id: String(created.id) } })).status).toBe('SENT');
     expect(await outbox.deliverNext()).toBe(true); expect(callbackCount).toBe(1);

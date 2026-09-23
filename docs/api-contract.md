@@ -39,3 +39,52 @@ for an installation whose source is `PETCLINIC_OPERATING`.
 carry explicit messaging consent and match the hashed pilot allowlist. A committed sync creates an
 idempotent reminder job. The worker reads the appointment source again before sending, so cancellation,
 rescheduling, loss of consent or removal from the pilot allowlist prevents delivery.
+
+## Multi Zalo accounts (CRM, tenant-scoped)
+
+A tenant owns many `ZaloAccount`s (statuses `PENDING_LOGIN, CONNECTING, CONNECTED, RELOGIN_REQUIRED,
+PAUSED, RATE_LIMITED, RESTRICTED, DISCONNECTED, ERROR, REVOKED`; `paused` is a separate manual flag).
+All routes take the tenant from the CRM session; a foreign or unknown account id returns the same
+`404 NOT_FOUND`. Responses never contain the sender URL, client id, signing key, Zalo session or the
+full phone number (only `phoneMasked`). Every mutation is audited.
+
+| Route | Permission | Notes |
+|---|---|---|
+| `GET /crm/zalo-accounts` | `crm.zalo.read` | `{accounts[], tenantDailyLimit, maxAccountDailyWithoutPlan}`; each account has `sentToday`, `queuedJobs`, `usable`, `unavailableReason`, `capabilities`, `assignments[]` |
+| `GET /crm/zalo-accounts/:id` | `crm.zalo.read` | + `recentAttempts[]` |
+| `POST /crm/zalo-accounts` | `crm.zalo.manage` + usable entitlement | `{displayName, channel?, dailyQuota?, priority?, isDefault?}` → `PENDING_LOGIN`; first account becomes the tenant default |
+| `PATCH /crm/zalo-accounts/:id` | `crm.zalo.manage` | `{displayName?, dailyQuota?, priority?, isDefault?: true}`; sum of account quotas ≤ tenant/plan limit (`403 PLAN_LIMIT`) |
+| `POST /crm/zalo-accounts/:id/pause` · `/resume` | `crm.zalo.manage` (resume needs usable entitlement) | `{paused, senderApplied}` |
+| `POST /crm/zalo-accounts/:id/disconnect` | `crm.zalo.manage` | stops routing now; `senderSessionTerminated` only with sender `remoteControl` |
+| `POST /crm/zalo-accounts/:id/login/start` | `crm.zalo.manage` + usable entitlement | `{loginId, qrImage, expiresAt}` or `501 SENDER_NOT_SUPPORTED` |
+| `GET /crm/zalo-accounts/:id/login/status?loginId=` | `crm.zalo.manage` | `{status}`; `CONNECTED` marks the account connected |
+| `GET /crm/zalo-routing-rules` | `crm.zalo.read` | tenant rules |
+| `PUT /crm/zalo-routing-rules` | `crm.zalo.manage` | `{rules:[{zaloAccountId, installationId?, branchId?, eventType?, priority?, active?}]}` replaces all atomically (≤ 200, duplicates `409 DUPLICATE_RULE`) |
+
+Job list/detail add `branchId`, `selectedZaloAccountId`, `selectedZaloAccountName`, `selectedChannel`;
+job detail adds `deliveryAttempts[]` (`attemptNumber, accountName, status, outcomeCode, sendCount, …`).
+`PATCH /crm/settings` accepts `tenantDailyQuota` (≤ plan `dailyQuotaMax`, `null` = plan limit only).
+
+Care-job create accepts an optional `branchId` (`^[A-Za-z0-9._:-]{1,80}$`, not part of the idempotency
+hash); the PETCLINIC connector passes the appointment branch.
+
+Account selection (worker): usable accounts of the job tenant only; branch rule (tier 1) > installation
+rule (tier 2) > tenant default (tier 3); event-specific rules first; then rule priority, account priority,
+today's load, id. Sticky per job. No eligible account ⇒ job requeued `NO_ELIGIBLE_ACCOUNT` (never MOCK).
+Sender-facing contract: `docs/multi-zalo-sender-contract.md`.
+
+## Sender v2 — vòng 2 (2026-09-24)
+
+- `POST /crm/zalo-accounts/:id/sender/register` (`crm.zalo.manage` + entitlement): đăng ký (lại) account với sender v2,
+  idempotent. Tạo account (`POST /crm/zalo-accounts`) đã tự gọi bước này khi `SENDER_V2_*` được cấu hình. Sender chưa sẵn
+  sàng → account vẫn tạo, `lastError=SENDER_REGISTRATION_PENDING…`, không có cấu hình gửi, `login/start` → 503
+  `SENDER_REGISTRATION_PENDING`. Account của tenant khác → 404 như id lạ.
+- `POST /crm/zalo-accounts/:id/resume`: hỏi sender TRƯỚC; chỉ bỏ pause ở Gateway khi sender xác nhận. Sender 409
+  `RELOGIN_REQUIRED` → Gateway giữ pause, status `RELOGIN_REQUIRED`, trả 409 `RELOGIN_REQUIRED`; 409 khác → 409
+  `ACCOUNT_UNAVAILABLE`; timeout/phản hồi lạ → 503 `SENDER_UNAVAILABLE`. Pause: khoá ở Gateway trước rồi báo sender.
+  Sender không có `remoteControl` (v1/legacy) → chỉ đổi cục bộ như trước.
+- `POST /api/v1/channel/accounts/:id/health` (không qua CRM session): health callback của sender. Ký
+  `HMAC-SHA256(signingKey của account, METHOD\nPATH\nTS\nNONCE\nSHA256(rawBody))`, header
+  `x-sender-client-id|timestamp|nonce|event-id|account-id|signature`. Account phải được đăng ký bởi đúng client ký.
+  ±5 phút, nonce một lần (`ControlNonce`, tiền tố `sender:`), `eventId` idempotent (`SenderHealthEvent`, INSERT ON CONFLICT), sự kiện cũ hơn
+  `ZaloAccount.lastSenderEventAt` → `STALE` (UPDATE có điều kiện, nguyên tử khi đồng thời). `PAUSED` chỉ áp dụng khi account đang `CONNECTED`. Lỗi xác thực → cùng 401.

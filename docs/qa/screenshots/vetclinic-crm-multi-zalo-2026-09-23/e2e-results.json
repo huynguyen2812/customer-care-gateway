@@ -1,0 +1,212 @@
+[
+ {
+  "name": "SSO chủ doanh nghiệp A",
+  "ok": true,
+  "detail": "http://127.0.0.1:4102/#/tong-quan"
+ },
+ {
+  "name": "Thanh bên tóm tắt nhiều tài khoản (1/3 sẵn sàng, có tài khoản cần đăng nhập lại)",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Kênh Zalo A hiển thị đủ 3 tài khoản của A",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Kênh Zalo A không có tài khoản của B",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Trạng thái từng tài khoản: đang hoạt động / cần đăng nhập lại / tạm dừng",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Tổng quan tài khoản: 1/3 sẵn sàng, đã gửi hôm nay 7",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Số điện thoại tài khoản đã che, không lộ URL sender",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Phân công hiển thị (chi nhánh 2, mặc định, công nợ)",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "API danh sách không trả sender URL/khóa/credential",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Bấm Đăng nhập lại trên tài khoản cần đăng nhập",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Sender chưa hỗ trợ QR → báo \"chưa thể đăng nhập bằng mã QR\", không hiện ảnh QR",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Thêm tài khoản → trạng thái chờ đăng nhập, mở luồng đăng nhập",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Danh sách có 4 tài khoản sau khi thêm",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Sửa hạn mức vượt tổng của gói → bị chặn, báo rõ",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Tạm dừng tài khoản mặc định → 0/4 sẵn sàng",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Bật lại → 1/4 sẵn sàng",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Hộp phân công tải 3 quy tắc hiện có",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Mã chi nhánh sai định dạng bị chặn",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Lưu phân công qua API thật → hiện \"Chi nhánh CN-3\"",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Hàng đợi có cột Tài khoản Zalo với tên tài khoản đã chọn",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Chi tiết: lượt 1 bị từ chối trước khi gửi (Thủ Đức), lượt 2 đã gửi (Quận 1)",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Chi tiết tin chưa rõ kết quả: cảnh báo không tự gửi lại",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Cài đặt: danh sách tài khoản Zalo với nút tạm dừng từng tài khoản",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Cài đặt: có hạn mức chung doanh nghiệp",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Hạn mức doanh nghiệp vượt gói bị chặn",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Lưu hạn mức doanh nghiệp 40 qua API thật",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Nhật ký ghi thao tác tài khoản Zalo",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Không cuộn ngang 768px — kenh-zalo",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Không cuộn ngang 768px — hang-doi",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Không cuộn ngang 768px — cai-dat",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Hộp phân công vừa màn 768px",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Không cuộn ngang 375px — kenh-zalo",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Không cuộn ngang 375px — hang-doi",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Không cuộn ngang 375px — cai-dat",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Hộp phân công vừa màn 375px",
+  "ok": true,
+  "detail": "+0px"
+ },
+ {
+  "name": "Nhân viên xem được tài khoản nhưng không có nút quản lý",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Nhân viên gọi thẳng API tạm dừng → 403",
+  "ok": true,
+  "detail": "403"
+ },
+ {
+  "name": "Người xem không thấy Kênh Zalo",
+  "ok": true,
+  "detail": "Tổng quan, Khách hàng, Mẫu tin nhắn, Hàng đợi & lịch sử, Từ chối nhận tin, Cài đặt"
+ },
+ {
+  "name": "Tenant B chỉ thấy 2 tài khoản của B",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "B mở id tài khoản của A → 404 giống hệt id ngẫu nhiên",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Không có lỗi console/JS",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "Giao diện khách hàng không gọi /api/v1/admin",
+  "ok": true,
+  "detail": ""
+ }
+]

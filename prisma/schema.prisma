@@ -50,6 +50,28 @@ enum ChannelKind {
   ZNS
 }
 
+enum ZaloAccountStatus {
+  PENDING_LOGIN
+  CONNECTING
+  CONNECTED
+  RELOGIN_REQUIRED
+  PAUSED
+  RATE_LIMITED
+  RESTRICTED
+  DISCONNECTED
+  ERROR
+  REVOKED
+}
+
+// RESERVED → IN_FLIGHT → SENT | REJECTED_BEFORE_SEND (certainly not sent) | UNKNOWN (outcome not known).
+enum DeliveryAttemptStatus {
+  RESERVED
+  IN_FLIGHT
+  SENT
+  REJECTED_BEFORE_SEND
+  UNKNOWN
+}
+
 model Installation {
   id String @id @default(uuid()) @db.Uuid
   tenantId String @db.Uuid
@@ -74,12 +96,15 @@ model Installation {
   nonces RequestNonce[]
   jobs CareJob[]
   optOuts OptOut[]
-  zaloAccount ZaloAccount?
+  zaloAccounts ZaloAccount[]
+  routingRules ZaloRoutingRule[]
+  deliveryAttempts DeliveryAttempt[]
   webhookDeliveries WebhookDelivery[]
   auditLogs AuditLog[]
   templates MessageTemplate[]
   petclinicConnection PetclinicConnection?
   @@unique([tenantId, sourceProduct])
+  @@unique([id, tenantId])
   @@index([status, expiresAt])
 }
 
@@ -156,12 +181,17 @@ model CareJob {
   providerMessageId String? @db.VarChar(160)
   failureCode String? @db.VarChar(80)
   failureReason String? @db.VarChar(500)
+  branchId String? @db.VarChar(80)
+  selectedZaloAccountId String? @db.Uuid
+  selectedChannel ChannelKind?
   sentAt DateTime?
   cancelledAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   installation Installation @relation(fields: [installationId], references: [id], onDelete: Restrict)
   webhookDeliveries WebhookDelivery[]
+  selectedZaloAccount ZaloAccount? @relation(fields: [selectedZaloAccountId], references: [id], onDelete: SetNull)
+  deliveryAttempts DeliveryAttempt[]
   @@unique([installationId, idempotencyKey])
   @@index([status, scheduledAt, nextAttemptAt])
   @@index([installationId, externalReferenceId])
@@ -177,20 +207,105 @@ model OptOut {
   @@id([installationId, phoneHash])
 }
 
+// A Zalo sending account owned by a tenant (Platform tenant UUID, same value as Installation.tenantId).
+// installationId is only the legacy/control-plane provisioning link; routing uses ZaloRoutingRule.
 model ZaloAccount {
-  id String @id @default(uuid()) @db.Uuid
-  installationId String @unique @db.Uuid
-  channel ChannelKind
-  displayName String? @db.VarChar(160)
-  status String @db.VarChar(40)
-  credentialEnc String?
-  senderBaseUrl String?
-  senderClientId String? @db.VarChar(100)
-  dailySentCount Int @default(0)
-  dailyCountDate String? @db.VarChar(10)
-  lastConnectedAt DateTime?
-  lastError String? @db.VarChar(500)
-  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @db.Uuid
+  installationId   String?           @db.Uuid
+  channel          ChannelKind
+  displayName      String?           @db.VarChar(160)
+  phoneEnc         String?
+  phoneMasked      String?           @db.VarChar(20)
+  status           ZaloAccountStatus @default(PENDING_LOGIN)
+  paused           Boolean           @default(false)
+  pausedAt         DateTime?
+  pausedBy         String?           @db.VarChar(160)
+  priority         Int               @default(100)
+  isDefault        Boolean           @default(false)
+  dailyQuota       Int               @default(30)
+  timezone         String            @default("Asia/Ho_Chi_Minh") @db.VarChar(60)
+  // Sender capabilities negotiated with the operator (contractVersion, idempotentSend, recipientPreflight, qrLogin).
+  capabilities     Json              @default("{}")
+  sessionVersion   Int               @default(0)
+  credentialEnc    String?
+  senderBaseUrl    String?
+  senderClientId   String?           @db.VarChar(100)
+  dailySentCount   Int               @default(0)
+  dailyCountDate   String?           @db.VarChar(10)
+  lastConnectedAt  DateTime?
+  lastActiveAt     DateTime?
+  lastError        String?           @db.VarChar(500)
+  // Thời điểm (occurredAt) của health event sender mới nhất đã áp dụng — khoá thứ tự cho cập nhật có điều kiện.
+  lastSenderEventAt DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @default(now()) @updatedAt
+  installation     Installation?     @relation(fields: [installationId], references: [id], onDelete: SetNull)
+  routingRules     ZaloRoutingRule[]
+  deliveryAttempts DeliveryAttempt[]
+  selectedForJobs  CareJob[]
+  healthEvents     SenderHealthEvent[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status])
+}
+
+// Account affinity: most specific match wins (branch > installation > tenant default), then priority.
+model ZaloRoutingRule {
+  id             String        @id @default(uuid()) @db.Uuid
+  tenantId       String        @db.Uuid
+  zaloAccountId  String        @db.Uuid
+  installationId String?       @db.Uuid
+  branchId       String?       @db.VarChar(80)
+  eventType      String?       @db.VarChar(80)
+  priority       Int           @default(100)
+  active         Boolean       @default(true)
+  createdBy      String?       @db.VarChar(160)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @default(now()) @updatedAt
+  account        ZaloAccount   @relation(fields: [zaloAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  installation   Installation? @relation(fields: [installationId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([tenantId, active])
+}
+
+// One row per send attempt. id is the deliveryAttemptId / sender idempotency key.
+model DeliveryAttempt {
+  id                String                @id @default(uuid()) @db.Uuid
+  tenantId          String                @db.Uuid
+  careJobId         String                @db.Uuid
+  installationId    String                @db.Uuid
+  zaloAccountId     String                @db.Uuid
+  attemptNumber     Int
+  requestHash       String                @db.VarChar(64)
+  status            DeliveryAttemptStatus @default(RESERVED)
+  outcomeCode       String?               @db.VarChar(80)
+  providerMessageId String?               @db.VarChar(160)
+  // Reserved quota scopes [{scope, scopeId, day, limit}] released only on a certain NOT_SENT.
+  quotaScopes       Json
+  quotaReleased     Boolean               @default(false)
+  sendCount         Int                   @default(0)
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime              @default(now())
+  careJob           CareJob               @relation(fields: [careJobId], references: [id], onDelete: Cascade)
+  account           ZaloAccount           @relation(fields: [zaloAccountId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  installation      Installation          @relation(fields: [installationId, tenantId], references: [id, tenantId], onDelete: Restrict)
+
+  @@unique([careJobId, attemptNumber])
+  @@index([zaloAccountId, createdAt])
+}
+
+// Atomic per-day reservations. scope: TENANT | INSTALLATION | ACCOUNT. day is YYYY-MM-DD in the scope timezone.
+model DeliveryQuotaCounter {
+  scope     String   @db.VarChar(16)
+  scopeId   String   @db.Uuid
+  day       String   @db.VarChar(10)
+  used      Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@id([scope, scopeId, day])
 }
 
 model MessageTemplate {
@@ -257,4 +372,95 @@ model AdminUser {
   lastLoginAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// VETCLINIC CRM (customer-facing, tenant-scoped). Platform Admin is the source of truth for
+// tenant, user, entitlement and installation; these tables only cache what Platform sent over a
+// signed channel. Tenant scope for every CRM request comes from CrmSession, never from the client.
+// ---------------------------------------------------------------------------
+
+model CrmTenant {
+  platformTenantId        String       @id @db.Uuid
+  displayName             String?      @db.VarChar(200)
+  // Platform installation of product CUSTOMER_CARE_CRM for this tenant (credential used for
+  // token-exchange/session-check). Secret is encrypted at rest and never returned by any API.
+  platformInstallationId  String?      @db.Uuid
+  platformClientId        String?      @unique @db.VarChar(100)
+  platformClientSecretEnc String?
+  callbackBaseUrl         String?      @db.VarChar(300)
+  installationStatus      String       @default("PENDING") @db.VarChar(20)
+  entitlementStatus       String       @default("UNKNOWN") @db.VarChar(20)
+  planCode                String?      @db.VarChar(64)
+  limits                  Json?
+  features                Json?
+  entitlementStartsAt     DateTime?
+  entitlementExpiresAt    DateTime?
+  entitlementUpdatedAt    DateTime?
+  // Tenant-wide daily cap chosen by the tenant; effective limit is min(this, plan limits.dailyQuotaMax).
+  tenantDailyQuota        Int?
+  timezone                String       @default("Asia/Ho_Chi_Minh") @db.VarChar(60)
+  autoSendPaused          Boolean      @default(false)
+  autoSendPausedAt        DateTime?
+  autoSendPausedBy        String?      @db.VarChar(160)
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+  sessions                CrmSession[]
+}
+
+model CrmSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  tokenHash        String    @unique @db.VarChar(64)
+  platformTenantId String    @db.Uuid
+  platformUserId   String    @db.Uuid
+  productCode      String    @db.VarChar(40)
+  roles            String[]
+  displayName      String?   @db.VarChar(200)
+  username         String?   @db.VarChar(160)
+  issuedAt         DateTime  @default(now())
+  expiresAt        DateTime
+  lastCheckedAt    DateTime  @default(now())
+  checkGraceUntil  DateTime?
+  revokedAt        DateTime?
+  revokeReason     String?   @db.VarChar(80)
+  userAgent        String?   @db.VarChar(300)
+  tenant           CrmTenant @relation(fields: [platformTenantId], references: [platformTenantId], onDelete: Cascade)
+
+  @@index([platformTenantId, platformUserId])
+  @@index([expiresAt])
+}
+
+model CrmSsoTokenReplay {
+  jti              String   @id @db.VarChar(100)
+  platformTenantId String   @db.Uuid
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model PlatformEvent {
+  eventId          String    @id @db.VarChar(80)
+  type             String    @db.VarChar(60)
+  platformTenantId String?   @db.Uuid
+  occurredAt       DateTime?
+  receivedAt       DateTime  @default(now())
+  result           String    @db.VarChar(40)
+
+  @@index([platformTenantId, receivedAt])
+}
+
+// Health callback sender → Gateway (contract v2). eventId là khóa idempotent; chỉ sự kiện mới hơn mới được áp dụng.
+model SenderHealthEvent {
+  eventId       String      @id @db.Uuid
+  tenantId      String      @db.Uuid
+  zaloAccountId String      @db.Uuid
+  status        String      @db.VarChar(30)
+  reason        String?     @db.VarChar(80)
+  occurredAt    DateTime
+  result        String      @db.VarChar(20)
+  receivedAt    DateTime    @default(now())
+  account       ZaloAccount @relation(fields: [zaloAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@index([zaloAccountId, occurredAt])
 }

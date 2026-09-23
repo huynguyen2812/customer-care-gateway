@@ -11,7 +11,7 @@ import { isReminderEligible, PetclinicAppointment } from './petclinic.types';
 export class PetclinicSyncService {
   constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly client: PetclinicClientService, private readonly jobs: CareJobsService) {}
 
-  async configure(installationId: string, input: Record<string, any>, actorId: string) {
+  async configure(installationId: string, input: Record<string, any>, actorId: string, actorType = 'PLATFORM_ADMIN') {
     const installation = await this.prisma.installation.findUnique({ where: { id: installationId } });
     if (!installation || installation.sourceProduct !== SourceProduct.PETCLINIC_OPERATING) throw new NotFoundException();
     const base = new URL(String(input.apiBaseUrl || ''));
@@ -30,11 +30,11 @@ export class PetclinicSyncService {
       allowedBranchIds: allowedBranches, pilotAllowedPhoneHashes: hashes,
       reminderLeadMinutes: Math.max(15, Math.min(10080, Number(input.reminderLeadMinutes || 1440))), active: input.active === true,
     }});
-    await this.prisma.auditLog.create({ data: { installationId, tenantId: installation.tenantId, actorType: 'PLATFORM_ADMIN', actorId, action: 'PETCLINIC_CONNECTION_CONFIGURED', targetType: 'PetclinicConnection', targetId: connection.id, result: 'SUCCESS', metadata: { active: connection.active, branchCount: connection.allowedBranchIds.length, pilotAllowCount: hashes.length } } });
+    await this.prisma.auditLog.create({ data: { installationId, tenantId: installation.tenantId, actorType, actorId, action: 'PETCLINIC_CONNECTION_CONFIGURED', targetType: 'PetclinicConnection', targetId: connection.id, result: 'SUCCESS', metadata: { active: connection.active, branchCount: connection.allowedBranchIds.length, pilotAllowCount: hashes.length } } });
     return { installationId, active: connection.active, branchCount: connection.allowedBranchIds.length, pilotAllowCount: hashes.length, secretStoredEncrypted: true };
   }
 
-  async sync(installationId: string, input: Record<string, any>, actorId: string) {
+  async sync(installationId: string, input: Record<string, any>, actorId: string, actorType = 'PLATFORM_ADMIN') {
     const installation = await this.prisma.installation.findUnique({ where: { id: installationId } });
     const connection = await this.prisma.petclinicConnection.findUnique({ where: { installationId } });
     if (!installation || !connection) throw new NotFoundException();
@@ -57,12 +57,12 @@ export class PetclinicSyncService {
           }
           const scheduledAt = new Date(item.appointment.appointmentAt.getTime() - connection.reminderLeadMinutes * 60_000);
           cancelled += (await this.prisma.careJob.updateMany({ where: { installationId, externalReferenceId, status: { in: ['QUEUED', 'PROCESSING'] }, scheduledAt: { not: scheduledAt } }, data: { status: 'CANCELLED', cancelledAt: new Date(), failureCode: 'SOURCE_RESCHEDULED' } })).count;
-          const result = await this.jobs.create(ctx as any, { sourceProduct: SourceProduct.PETCLINIC_OPERATING, externalReferenceId, eventType: 'APPOINTMENT_REMINDER', recipient: { name: item.appointment.ownerName, phone: item.appointment.phone }, templateCode: 'PC_APPT_REMINDER_V1', templateVariables: { ownerName: item.appointment.ownerName, petName: item.appointment.petName, appointmentTime: item.appointment.appointmentAt.toISOString(), serviceName: item.appointment.serviceName }, scheduledAt: scheduledAt.toISOString(), consentStatus: ConsentStatus.GRANTED, idempotencyKey: `${externalReferenceId}:${item.appointment.appointmentAt.toISOString()}` });
+          const result = await this.jobs.create(ctx as any, { sourceProduct: SourceProduct.PETCLINIC_OPERATING, externalReferenceId, eventType: 'APPOINTMENT_REMINDER', recipient: { name: item.appointment.ownerName, phone: item.appointment.phone }, templateCode: 'PC_APPT_REMINDER_V1', templateVariables: { ownerName: item.appointment.ownerName, petName: item.appointment.petName, appointmentTime: item.appointment.appointmentAt.toISOString(), serviceName: item.appointment.serviceName }, scheduledAt: scheduledAt.toISOString(), consentStatus: ConsentStatus.GRANTED, branchId: item.appointment.branchId ? String(item.appointment.branchId) : undefined, idempotencyKey: `${externalReferenceId}:${item.appointment.appointmentAt.toISOString()}` });
           if (result.replay !== true) created++;
         }
       }
       await this.prisma.petclinicConnection.update({ where: { installationId }, data: { lastSyncAt: new Date(), lastSyncStatus: dryRun ? 'DRY_RUN' : 'SUCCESS', lastError: null } });
-      await this.prisma.auditLog.create({ data: { installationId, tenantId: installation.tenantId, actorType: 'PLATFORM_ADMIN', actorId, action: dryRun ? 'PETCLINIC_SYNC_PREVIEWED' : 'PETCLINIC_SYNC_COMMITTED', targetType: 'PetclinicConnection', targetId: connection.id, result: 'SUCCESS', metadata: { scanned: appointments.length, eligible: decisions.filter((x) => x.eligible).length, created, cancelled } } });
+      await this.prisma.auditLog.create({ data: { installationId, tenantId: installation.tenantId, actorType, actorId, action: dryRun ? 'PETCLINIC_SYNC_PREVIEWED' : 'PETCLINIC_SYNC_COMMITTED', targetType: 'PetclinicConnection', targetId: connection.id, result: 'SUCCESS', metadata: { scanned: appointments.length, eligible: decisions.filter((x) => x.eligible).length, created, cancelled } } });
       return { dryRun, scanned: appointments.length, eligible: decisions.filter((x) => x.eligible).length, created, cancelled, skippedByReason: this.countReasons(decisions) };
     } catch (error) {
       await this.prisma.petclinicConnection.update({ where: { installationId }, data: { lastSyncAt: new Date(), lastSyncStatus: 'FAILED', lastError: (error instanceof Error ? error.message : 'SYNC_FAILED').slice(0, 500) } });

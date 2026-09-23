@@ -7,3 +7,10 @@ coverage/
 *.log
 *.tsbuildinfo
 .runtime/
+
+# Production UI is built from web/ into public/ (npm run build:web); never commit build output.
+public/
+web/node_modules/
+
+# 2026-09-24 — bản archive source local (bàn giao/backup), không commit.
+/customer-care-gateway-*.tar.gz

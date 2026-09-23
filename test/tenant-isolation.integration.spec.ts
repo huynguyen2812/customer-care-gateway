@@ -1,3 +1,4 @@
+import { TenantAccessService } from '../src/crm/tenant-access.service';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import { PrismaClient, SourceProduct } from '@prisma/client';
@@ -7,7 +8,7 @@ import { CryptoService } from '../src/common/crypto.service';
 describe('tenant isolation and idempotency (real PostgreSQL)', () => {
   const prisma = new PrismaClient();
   const crypto = new CryptoService();
-  const service = new CareJobsService(prisma as any, crypto);
+  const service = new CareJobsService(prisma as any, crypto, new TenantAccessService(prisma as any));
   const createdInstallationIds: string[] = [];
 
   beforeAll(async () => {

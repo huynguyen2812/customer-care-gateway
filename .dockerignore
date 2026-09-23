@@ -4,10 +4,13 @@
 .env.*
 !.env.example
 node_modules
+web/node_modules
 dist
+public
 coverage
 *.log
 .runtime
 docs
 test
 scripts
+*.tar.gz
