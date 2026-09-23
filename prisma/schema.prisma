@@ -1,0 +1,250 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SourceProduct {
+  B2B_SALE
+  PETCLINIC_OPERATING
+  PETCLINIC_ESSENTIAL
+}
+
+enum InstallationStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REVOKED
+  ERROR
+}
+
+enum CredentialStatus {
+  ACTIVE
+  ROTATING_OUT
+  REVOKED
+}
+
+enum ConsentStatus {
+  UNKNOWN
+  GRANTED
+  WITHDRAWN
+}
+
+enum CareJobStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+  OPTED_OUT
+  ACCOUNT_RESTRICTED
+  RECIPIENT_NOT_FOUND
+}
+
+enum ChannelKind {
+  MOCK
+  PERSONAL_ZALO
+  ZNS
+}
+
+model Installation {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  sourceProduct SourceProduct
+  status InstallationStatus @default(PENDING)
+  scopes String[]
+  callbackUrl String?
+  sourceVerifyUrl String?
+  callbackSecretEnc String?
+  dailyQuota Int @default(30)
+  quietHoursStart String @default("21:00") @db.VarChar(5)
+  quietHoursEnd String @default("08:00") @db.VarChar(5)
+  timezone String @default("Asia/Ho_Chi_Minh")
+  expiresAt DateTime?
+  lastConnectedAt DateTime?
+  lastError String? @db.VarChar(500)
+  paused Boolean @default(false)
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  credentials ApiCredential[]
+  nonces RequestNonce[]
+  jobs CareJob[]
+  optOuts OptOut[]
+  zaloAccount ZaloAccount?
+  webhookDeliveries WebhookDelivery[]
+  auditLogs AuditLog[]
+  templates MessageTemplate[]
+  petclinicConnection PetclinicConnection?
+  @@unique([tenantId, sourceProduct])
+  @@index([status, expiresAt])
+}
+
+model PetclinicConnection {
+  id String @id @default(uuid()) @db.Uuid
+  installationId String @unique @db.Uuid
+  apiBaseUrl String
+  apiTokenEnc String
+  apiTenantId String @db.VarChar(160)
+  allowedBranchIds String[]
+  pilotAllowedPhoneHashes String[]
+  appointmentsPath String @default("/clinic-service/api/v1/clinic/appointments")
+  reminderLeadMinutes Int @default(1440)
+  active Boolean @default(false)
+  lastSyncAt DateTime?
+  lastSyncStatus String? @db.VarChar(40)
+  lastError String? @db.VarChar(500)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+}
+
+model ControlNonce {
+  clientId String @db.VarChar(80)
+  nonce String @db.VarChar(80)
+  seenAt DateTime @default(now())
+  @@id([clientId, nonce])
+  @@index([seenAt])
+}
+
+model ApiCredential {
+  id String @id @default(uuid()) @db.Uuid
+  installationId String @db.Uuid
+  clientId String @unique @db.VarChar(80)
+  secretHash String @db.VarChar(64)
+  secretLast4 String @db.VarChar(8)
+  status CredentialStatus @default(ACTIVE)
+  expiresAt DateTime?
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  @@index([installationId, status])
+}
+
+model RequestNonce {
+  installationId String @db.Uuid
+  nonce String @db.VarChar(80)
+  seenAt DateTime @default(now())
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  @@id([installationId, nonce])
+  @@index([seenAt])
+}
+
+model CareJob {
+  id String @id @default(uuid()) @db.Uuid
+  installationId String @db.Uuid
+  idempotencyKey String @db.VarChar(128)
+  requestHash String @db.VarChar(64)
+  externalReferenceId String @db.VarChar(160)
+  sourceProduct SourceProduct
+  eventType String @db.VarChar(80)
+  recipientNameEnc String
+  phoneEnc String
+  phoneHash String @db.VarChar(64)
+  templateCode String @db.VarChar(100)
+  templateVariables Json
+  scheduledAt DateTime
+  consentStatus ConsentStatus
+  status CareJobStatus @default(QUEUED)
+  attempts Int @default(0)
+  nextAttemptAt DateTime?
+  lockedAt DateTime?
+  lockedBy String? @db.VarChar(100)
+  providerMessageId String? @db.VarChar(160)
+  failureCode String? @db.VarChar(80)
+  failureReason String? @db.VarChar(500)
+  sentAt DateTime?
+  cancelledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Restrict)
+  webhookDeliveries WebhookDelivery[]
+  @@unique([installationId, idempotencyKey])
+  @@index([status, scheduledAt, nextAttemptAt])
+  @@index([installationId, externalReferenceId])
+}
+
+model OptOut {
+  installationId String @db.Uuid
+  phoneHash String @db.VarChar(64)
+  source String @db.VarChar(80)
+  reason String? @db.VarChar(300)
+  createdAt DateTime @default(now())
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  @@id([installationId, phoneHash])
+}
+
+model ZaloAccount {
+  id String @id @default(uuid()) @db.Uuid
+  installationId String @unique @db.Uuid
+  channel ChannelKind
+  displayName String? @db.VarChar(160)
+  status String @db.VarChar(40)
+  credentialEnc String?
+  senderBaseUrl String?
+  senderClientId String? @db.VarChar(100)
+  dailySentCount Int @default(0)
+  dailyCountDate String? @db.VarChar(10)
+  lastConnectedAt DateTime?
+  lastError String? @db.VarChar(500)
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+}
+
+model MessageTemplate {
+  id String @id @default(uuid()) @db.Uuid
+  installationId String @db.Uuid
+  code String @db.VarChar(100)
+  body String @db.VarChar(2000)
+  allowedVariables String[]
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  @@unique([installationId, code])
+}
+
+model WebhookDelivery {
+  id String @id @default(uuid()) @db.Uuid
+  installationId String @db.Uuid
+  careJobId String @db.Uuid
+  sequence Int
+  status CareJobStatus
+  attempts Int @default(0)
+  nextAttemptAt DateTime?
+  deliveredAt DateTime?
+  lastHttpStatus Int?
+  lastError String? @db.VarChar(500)
+  createdAt DateTime @default(now())
+  installation Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  careJob CareJob @relation(fields: [careJobId], references: [id], onDelete: Cascade)
+  @@unique([careJobId, sequence])
+  @@index([nextAttemptAt, deliveredAt])
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  installationId String? @db.Uuid
+  tenantId String? @db.Uuid
+  actorType String @db.VarChar(40)
+  actorId String? @db.VarChar(160)
+  action String @db.VarChar(120)
+  targetType String? @db.VarChar(80)
+  targetId String? @db.VarChar(160)
+  result String @db.VarChar(40)
+  reason String? @db.VarChar(500)
+  metadata Json?
+  createdAt DateTime @default(now())
+  installation Installation? @relation(fields: [installationId], references: [id], onDelete: SetNull)
+  @@index([installationId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model SystemSetting {
+  key String @id @db.VarChar(100)
+  value Json
+  updatedBy String @db.VarChar(160)
+  updatedAt DateTime @updatedAt
+}

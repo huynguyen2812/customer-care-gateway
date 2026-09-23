@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: customer_care_gateway
+      POSTGRES_USER: care_gateway
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - customer_care_gateway_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U care_gateway -d customer_care_gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [gateway_private]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4100
+      DATABASE_URL: postgresql://care_gateway:${POSTGRES_PASSWORD}@postgres:5432/customer_care_gateway?schema=public
+    ports:
+      - "127.0.0.1:4100:4100"
+    networks: [gateway_private]
+
+networks:
+  gateway_private:
+    driver: bridge
+
+volumes:
+  customer_care_gateway_pg:
