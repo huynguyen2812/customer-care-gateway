@@ -13,7 +13,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [gateway_private, care_internal]
+    networks: [gateway_private]
 
   gateway:
     build:
@@ -31,7 +31,7 @@ services:
       DATABASE_URL: postgresql://care_gateway:${POSTGRES_PASSWORD}@postgres:5432/customer_care_gateway?schema=public
     ports:
       - "127.0.0.1:4100:4100"
-    networks: [gateway_private]
+    networks: [gateway_private, care_internal]
 
 networks:
   gateway_private:
