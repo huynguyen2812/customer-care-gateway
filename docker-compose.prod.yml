@@ -13,7 +13,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [gateway_private]
+    networks: [gateway_private, care_internal]
 
   gateway:
     build:
@@ -36,6 +36,9 @@ services:
 networks:
   gateway_private:
     driver: bridge
+  care_internal:
+    external: true
+    name: vetclinic_care_internal
 
 volumes:
   customer_care_gateway_pg:

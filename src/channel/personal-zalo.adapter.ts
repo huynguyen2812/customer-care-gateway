@@ -43,7 +43,11 @@ export class PersonalZaloAdapter implements ChannelAdapter {
   private async signed(account: ZaloAccount, method: 'GET' | 'POST', path: string, body: unknown): Promise<SignedResponse> {
     let url: URL;
     try { url = new URL(path, account.senderBaseUrl!); } catch { return { ok: false, reachable: false, timedOut: false }; }
-    if (url.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(url.hostname)) return { ok: false, reachable: false, timedOut: false };
+    const configuredInternalHttp = process.env.SENDER_ALLOW_HTTP_PRIVATE === 'true'
+      && account.senderBaseUrl === process.env.SENDER_V2_BASE_URL;
+    if (url.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(url.hostname) && !configuredInternalHttp) {
+      return { ok: false, reachable: false, timedOut: false };
+    }
     const raw = method === 'GET' ? '' : canonicalJson(body); const timestamp = Date.now().toString(); const nonce = randomUUID();
     const signature = createHmac('sha256', this.crypto.decrypt(account.credentialEnc!)).update(`${method}\n${url.pathname}\n${timestamp}\n${nonce}\n${sha256(raw)}`).digest('hex');
     try {
