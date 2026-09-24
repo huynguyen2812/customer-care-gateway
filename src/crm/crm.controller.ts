@@ -3,12 +3,13 @@ import { Crm, CrmAuthGuard, RequirePermission, RequiresSendingEntitlement } from
 import { CrmContext } from './crm-session.service';
 import { CrmDataService } from './crm-data.service';
 import { ZaloAccountsService } from './zalo-accounts.service';
+import { B2bSourceService } from '../b2b/b2b-source.service';
 
 /** Customer-facing, tenant-scoped API. Tenant comes only from the server-side CRM session. */
 @Controller('crm')
 @UseGuards(CrmAuthGuard)
 export class CrmController {
-  constructor(private readonly data: CrmDataService, private readonly zalo: ZaloAccountsService) {}
+  constructor(private readonly data: CrmDataService, private readonly zalo: ZaloAccountsService, private readonly b2b: B2bSourceService) {}
 
   @Get('overview') @RequirePermission('crm.dashboard.read')
   overview(@Crm() crm: CrmContext, @Query('period') period?: string) { return this.data.overview(crm, String(period || '7d')); }
@@ -18,6 +19,12 @@ export class CrmController {
 
   @Get('installations/:id') @RequirePermission('crm.sources.read')
   installation(@Crm() crm: CrmContext, @Param('id') id: string) { return this.data.installation(crm, id); }
+
+  @Get('b2b-receivables') @RequirePermission('crm.customers.read')
+  b2bReceivables(@Crm() crm: CrmContext) { return this.b2b.list(crm); }
+
+  @Post('b2b-receivables/:externalReferenceId/queue') @HttpCode(200) @RequirePermission('crm.jobs.create') @RequiresSendingEntitlement()
+  queueB2bReminder(@Crm() crm: CrmContext, @Param('externalReferenceId') externalReferenceId: string) { return this.b2b.queue(crm, externalReferenceId); }
 
   @Post('installations/:id/petclinic') @HttpCode(200) @RequirePermission('crm.sources.manage') @RequiresSendingEntitlement()
   configurePetclinic(@Crm() crm: CrmContext, @Param('id') id: string, @Body() body: Record<string, unknown>) { return this.data.configurePetclinic(crm, id, body || {}); }

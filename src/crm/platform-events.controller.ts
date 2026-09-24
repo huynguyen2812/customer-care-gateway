@@ -9,7 +9,7 @@ import { crmCallbackBase } from './crm-auth.controller';
 import { DeletionInput, LIFECYCLE_TX, LIFECYCLE_TYPES, TenantLifecycleService } from './tenant-lifecycle.service';
 
 const TYPE_ALIASES: Record<string, string> = { UPSERT_INSTALLATION: 'installation.upserted', REVOKE_INSTALLATION: 'installation.revoked' };
-const TYPES = new Set(['installation.upserted', 'installation.revoked', 'subscription.activated', 'subscription.changed', 'subscription.suspended', 'subscription.expired', 'user_product_access.revoked']);
+const TYPES = new Set(['installation.upserted', 'installation.revoked', 'subscription.activated', 'subscription.changed', 'subscription.suspended', 'subscription.expired', 'user_product_access.revoked', 'source.changed']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SKEW_MS = 5 * 60_000;
 
@@ -138,11 +138,20 @@ export class PlatformEventsController {
         platformInstallationId: UUID.test(String(inst.installationId || '')) ? String(inst.installationId) : null,
         platformClientId: clientId, platformClientSecretEnc: this.crypto.encrypt(clientSecret), callbackBaseUrl: String(inst.callbackBaseUrl),
         installationStatus: 'ACTIVE', ...(stale ? {} : { ...entitlementData, entitlementUpdatedAt: occurredAt }),
+        ...(typeof body?.platformApiBaseUrl === 'string' ? { platformApiBaseUrl: body.platformApiBaseUrl.slice(0, 300) } : {}),
+        ...(body?.source?.productCode === 'B2B_SALE' ? { b2bSourceStatus: String(body.source.status || 'NOT_GRANTED').slice(0, 20), b2bSourceUpdatedAt: occurredAt } : {}),
       };
       await tx.crmTenant.upsert({ where: { platformTenantId }, create: { platformTenantId, ...data }, update: data });
+      await this.syncB2bInstallation(tx, platformTenantId, body?.source, body?.platformApiBaseUrl);
       return 'APPLIED';
     }
     if (!existing) return 'IGNORED_UNKNOWN_TENANT';
+    if (type === 'source.changed') {
+      if (body?.source?.productCode !== 'B2B_SALE') throw new UnprocessableEntityException('Wrong source product');
+      await tx.crmTenant.update({ where: { platformTenantId }, data: { b2bSourceStatus: String(body.source.status || 'NOT_GRANTED').slice(0, 20), b2bSourceUpdatedAt: occurredAt } });
+      await this.syncB2bInstallation(tx, platformTenantId, body.source, existing.platformApiBaseUrl);
+      return 'APPLIED';
+    }
     if (type === 'installation.revoked') {
       const clientId = body?.installation?.clientId;
       if (clientId !== undefined && clientId !== existing.platformClientId) return 'IGNORED_CLIENT_MISMATCH';
@@ -165,5 +174,21 @@ export class PlatformEventsController {
       await tx.crmSession.updateMany({ where: { platformTenantId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'ACCESS_REVOKED' } });
     }
     return 'APPLIED';
+  }
+
+  private async syncB2bInstallation(tx: Prisma.TransactionClient, tenantId: string, source: Record<string, any> | undefined, platformApiBaseUrl?: string | null) {
+    if (source?.productCode !== 'B2B_SALE') return;
+    const usable = ['ACTIVE', 'TRIAL'].includes(String(source.status));
+    const base = String(platformApiBaseUrl || '').replace(/\/$/, '');
+    const installation = await tx.installation.upsert({
+      where: { tenantId_sourceProduct: { tenantId, sourceProduct: 'B2B_SALE' } },
+      create: { tenantId, sourceProduct: 'B2B_SALE', status: usable ? 'ACTIVE' : 'SUSPENDED', scopes: ['care:job:create', 'care:job:read', 'care:job:cancel'], sourceVerifyUrl: base ? `${base}/crm-b2b-source/receivables` : null, paused: !usable },
+      update: { status: usable ? 'ACTIVE' : 'SUSPENDED', paused: !usable, sourceVerifyUrl: base ? `${base}/crm-b2b-source/receivables` : undefined, lastError: usable ? null : 'B2B entitlement inactive' },
+    });
+    await tx.messageTemplate.upsert({
+      where: { installationId_code: { installationId: installation.id, code: 'B2B_DEBT_REMINDER_V1' } },
+      create: { installationId: installation.id, code: 'B2B_DEBT_REMINDER_V1', body: 'Kính gửi {{customerName}}, chứng từ {{documentCode}} còn {{remainingAmount}} và đến hạn {{dueAt}}.', allowedVariables: ['customerName', 'documentCode', 'remainingAmount', 'dueAt'] },
+      update: {},
+    });
   }
 }

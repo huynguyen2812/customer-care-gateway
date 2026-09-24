@@ -1,0 +1,4 @@
+ALTER TABLE "CrmTenant"
+  ADD COLUMN "platformApiBaseUrl" VARCHAR(300),
+  ADD COLUMN "b2bSourceStatus" VARCHAR(20) NOT NULL DEFAULT 'NOT_GRANTED',
+  ADD COLUMN "b2bSourceUpdatedAt" TIMESTAMP(3);

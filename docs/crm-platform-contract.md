@@ -158,3 +158,25 @@ ghi lỗi theo sản phẩm, lùi lịch thử lại; chỉ xóa `Tenant` + tạ
   `CUSTOMER_CARE_CRM_EVENTS_SHARED_SECRET` (cùng giá trị với `CRM_PLATFORM_EVENTS_SECRET`, riêng cho
   kênh này), `CUSTOMER_CARE_CRM_EVENTS_ALLOW_HTTP_LOCAL` (chỉ local), `CRM_EVENT_OUTBOX_WORKER_ENABLED`,
   `CRM_EVENT_OUTBOX_WORKER_INTERVAL_SECONDS` (5–3600, mặc định 30).
+
+## 5. Nguồn công nợ B2B SALE (2026-09-24)
+
+Khi `CUSTOMER_CARE_CRM` và `B2B_SALE` cùng `TRIAL|ACTIVE`, Platform tự provision nguồn
+`B2B_SALE`; khách hàng không nhập token hoặc tenantId. `installation.upserted` mang thêm
+`platformApiBaseUrl` và `source:{productCode:"B2B_SALE",status,startsAt,expiresAt}`. Mọi thay đổi gói
+B2B sau đó dùng sự kiện có chữ ký `source.changed`; CRM tạo/cập nhật installation B2B tương ứng và
+tạm dừng ngay khi nguồn không còn hiệu lực. Cùng `eventId` vẫn chống replay như mục 3.
+
+CRM gọi B2B qua HTTPS bằng chính cặp `clientId/clientSecret` của installation CRM. B2B suy tenant
+từ credential đã lưu; request không có và không được quyền chọn tenantId.
+
+| API B2B | Kết quả |
+|---|---|
+| `GET /api/crm-b2b-source/receivables` | Các khoản còn phải thu, gồm external reference ổn định, khách hàng, SĐT E.164, số tiền, hạn, chứng từ, chi nhánh, updatedAt và consent. Chưa consent/phone sai vẫn trả `eligible:false`, CRM không được tạo việc. |
+| `GET /api/crm-b2b-source/receivables/:externalReferenceId/revalidate` | Kiểm lại ngay trước gửi. ID sai/khác tenant/đã hết nợ đều trả cùng `{eligible:false,reason:"SOURCE_NO_LONGER_VALID"}` để không tạo oracle chéo tenant. |
+| `PATCH /api/partners/:id/messaging-consent` | B2B tenant user có quyền cập nhật `GRANTED|WITHDRAWN`, nguồn, thời điểm, người ghi nhận; mặc định `UNKNOWN`. |
+
+CRM cung cấp `GET /api/v1/crm/b2b-receivables` và
+`POST /api/v1/crm/b2b-receivables/:externalReferenceId/queue`. Idempotency một lần nhắc/ngày dùng
+`b2b-debt:{sourceId}:{YYYY-MM-DD}`. Worker luôn revalidate B2B trước khi chọn tài khoản/gửi; B2B lỗi,
+mất quyền, hết nợ hoặc mất consent đều fail-closed. Không log credential, tên hay SĐT.

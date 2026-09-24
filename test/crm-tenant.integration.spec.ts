@@ -148,6 +148,7 @@ describe('VETCLINIC CRM tenant boundary (Platform SSO, isolation, permissions, e
   afterAll(async () => {
     await prisma.careJob.deleteMany({ where: { installationId: { in: createdInstallations } } });
     await prisma.installation.deleteMany({ where: { id: { in: createdInstallations } } });
+    await prisma.installation.deleteMany({ where: { tenantId: { in: [A.tenantId, B.tenantId] }, sourceProduct: 'B2B_SALE' } });
     await prisma.crmTenant.deleteMany({ where: { platformTenantId: { in: [A.tenantId, B.tenantId] } } });
     await prisma.crmSsoTokenReplay.deleteMany({ where: { platformTenantId: { in: [A.tenantId, B.tenantId] } } });
     await prisma.platformEvent.deleteMany({ where: { platformTenantId: { in: [A.tenantId, B.tenantId] } } });
@@ -438,6 +439,17 @@ describe('VETCLINIC CRM tenant boundary (Platform SSO, isolation, permissions, e
       expect((await http().get('/api/v1/crm/overview').set('Cookie', b.cookie)).status).toBe(401);
       expect((await login(B)).res.headers.location).toBe('/#loi=ACCESS_DENIED');
       expect((await prisma.crmTenant.findUnique({ where: { platformTenantId: B.tenantId } }))!.platformClientSecretEnc).toBeNull();
+    });
+
+    it('provisions, suspends and reactivates the B2B source only from signed Platform events', async () => {
+      const active = signedEvent({ type: 'source.changed', tenant: { platformTenantId: A.tenantId }, source: { productCode: 'B2B_SALE', status: 'ACTIVE' }, occurredAt: new Date(Date.now() + 3000).toISOString() });
+      expect((await http().post('/api/v1/crm/platform/events').set(active.headers).send(active.raw)).body.result).toBe('APPLIED');
+      expect(await prisma.installation.findUnique({ where: { tenantId_sourceProduct: { tenantId: A.tenantId, sourceProduct: 'B2B_SALE' } } })).toMatchObject({ status: 'ACTIVE', paused: false });
+      const suspended = signedEvent({ type: 'source.changed', tenant: { platformTenantId: A.tenantId }, source: { productCode: 'B2B_SALE', status: 'SUSPENDED' }, occurredAt: new Date(Date.now() + 4000).toISOString() });
+      await http().post('/api/v1/crm/platform/events').set(suspended.headers).send(suspended.raw);
+      expect(await prisma.installation.findUnique({ where: { tenantId_sourceProduct: { tenantId: A.tenantId, sourceProduct: 'B2B_SALE' } } })).toMatchObject({ status: 'SUSPENDED', paused: true });
+      const replay = await http().post('/api/v1/crm/platform/events').set(suspended.headers).send(suspended.raw);
+      expect(replay.body.duplicate).toBe(true);
     });
   });
 });

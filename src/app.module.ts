@@ -39,6 +39,7 @@ import { TenantLifecycleService } from './crm/tenant-lifecycle.service';
 import { AccountSelectorService } from './delivery/account-selector.service';
 import { QuotaService } from './delivery/quota.service';
 import { ZaloAccountsService } from './crm/zalo-accounts.service';
+import { B2bSourceService } from './b2b/b2b-source.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true })],
@@ -51,6 +52,7 @@ import { ZaloAccountsService } from './crm/zalo-accounts.service';
     PlatformControlGuard,
     InstallationsService,
     CareJobsService,
+    B2bSourceService,
     MockAdapter,
     PersonalZaloAdapter,
     ChannelRouterService,

@@ -389,6 +389,9 @@ model CrmTenant {
   platformClientId        String?      @unique @db.VarChar(100)
   platformClientSecretEnc String?
   callbackBaseUrl         String?      @db.VarChar(300)
+  platformApiBaseUrl      String?      @db.VarChar(300)
+  b2bSourceStatus         String       @default("NOT_GRANTED") @db.VarChar(20)
+  b2bSourceUpdatedAt      DateTime?
   installationStatus      String       @default("PENDING") @db.VarChar(20)
   entitlementStatus       String       @default("UNKNOWN") @db.VarChar(20)
   planCode                String?      @db.VarChar(64)

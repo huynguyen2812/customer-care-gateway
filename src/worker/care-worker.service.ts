@@ -15,6 +15,7 @@ import { TenantAccessService } from '../crm/tenant-access.service';
 import { AccountSelectorService, TIER_LABEL } from '../delivery/account-selector.service';
 import { QuotaScope, QuotaService } from '../delivery/quota.service';
 import { redactText } from '../crm/crm-redact';
+import { B2bSourceService } from '../b2b/b2b-source.service';
 
 const STALE_LOCK_MS = 5 * 60_000;
 const MAX_SAME_ATTEMPT_SENDS = 3;
@@ -37,7 +38,7 @@ class QuotaExhausted extends Error { constructor(readonly scope: string) { super
  */
 @Injectable()
 export class CareWorkerService {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly router: ChannelRouterService, private readonly verifier: SourceVerifierService, private readonly webhooks: WebhookOutboxService, private readonly templates: TemplateService, private readonly petclinic: PetclinicSyncService, private readonly tenantAccess: TenantAccessService, private readonly selector: AccountSelectorService, private readonly quota: QuotaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly router: ChannelRouterService, private readonly verifier: SourceVerifierService, private readonly webhooks: WebhookOutboxService, private readonly templates: TemplateService, private readonly petclinic: PetclinicSyncService, private readonly tenantAccess: TenantAccessService, private readonly selector: AccountSelectorService, private readonly quota: QuotaService, private readonly b2b: B2bSourceService) {}
 
   /** Jobs left PROCESSING by a crashed worker go back to QUEUED; their open attempt decides what happens next. */
   async recoverStale(now = new Date()): Promise<number> {
@@ -86,6 +87,7 @@ export class CareWorkerService {
 
   private async sourceStillValid(job: CareJob, installation: Installation): Promise<boolean> {
     if (job.sourceProduct === 'PETCLINIC_OPERATING') return this.petclinic.verify(job.installationId, job.externalReferenceId, job.scheduledAt);
+    if (job.sourceProduct === 'B2B_SALE') return this.b2b.revalidate(installation.tenantId, job.externalReferenceId);
     if (!installation.sourceVerifyUrl || !installation.callbackSecretEnc) return false;
     return this.verifier.verify(installation.sourceVerifyUrl, this.crypto.decrypt(installation.callbackSecretEnc), { externalReferenceId: job.externalReferenceId, sourceProduct: job.sourceProduct, eventType: job.eventType, scheduledAt: job.scheduledAt.toISOString() });
   }
