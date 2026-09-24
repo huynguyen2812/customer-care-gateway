@@ -1,8 +1,10 @@
 # Contract Platform Admin ⇄ VETCLINIC CRM (`CUSTOMER_CARE_CRM`)
 
-Trạng thái: **phía CRM đã triển khai và kiểm thử với Platform giả lập (local).** Phía Platform
-**chưa có**, nên E2E với Platform thật là **BLOCKED**. Tài liệu này là handoff cho task
-B2B & Platform Admin. CRM không tự sửa repo Platform.
+Trạng thái (2026-09-24): **cả hai phía đã triển khai; E2E local với Platform thật qua HTTP thật +
+DB thật: PASS** (harness `scripts/qa/crm-platform-e2e.mjs` trong repo Platform, báo cáo
+`docs/qa/claude-platform-crm-e2e-and-deletion-2026-09-24.md` bên đó). Các nhãn **[PLATFORM CẦN
+LÀM]** bên dưới là lịch sử handoff: catalog, launcher, sự kiện, `crmRoles`, `planCode/limits`,
+`redirectUri` đã có phía Platform (chưa commit, chờ Codex review). Chưa production-approved.
 
 Nguyên tắc: Platform là nguồn sự thật về tenant, người dùng, `TenantProduct`, `UserProductAccess`,
 `PlatformProductInstallation`, gói/hạn mức. CRM chỉ cache những gì Platform gửi qua kênh có chữ ký, và
@@ -47,8 +49,9 @@ Mọi request /api/v1/crm/*: tenant/user/roles lấy từ CrmSession; mỗi 60s 
 - **[PLATFORM CẦN LÀM]** Route launcher `/product-launch/CUSTOMER_CARE_CRM`. Nó phải giữ `state`
   qua màn đăng nhập, giống TIMEKEEPING, và allowlist `returnTo` tương ứng.
 - **[PLATFORM NÊN LÀM]** Thêm claim `redirectUri` (callback đã ràng buộc với code) vào token-exchange
-  JWT. CRM đã kiểm claim này nếu có. Hiện CRM ràng buộc redirect bằng `callbackBaseUrl` đã được
-  provision.
+  JWT. Platform thật gửi `redirectUri = callbackBaseUrl` của installation (không phải URL callback
+  đầy đủ); CRM chấp nhận đúng giá trị đó hoặc URL callback đầy đủ, ngoài ra `REDIRECT_MISMATCH`
+  (lỗi này chỉ lộ ra khi chạy E2E thật 2026-09-24 và đã sửa).
 - **[PLATFORM NÊN LÀM]** Claim vai trò riêng cho CRM là `crmRoles: ["CRM_OWNER"|"CRM_ADMIN"|"CRM_STAFF"|"CRM_VIEWER"]`
   trong cả token-exchange và snapshot session-check. Khi chưa có, CRM ánh xạ `ADMIN`/`TENANT_ADMIN`
   → `CRM_OWNER`, và vai trò khác → `CRM_STAFF`. Giá trị lạ → `CRM_VIEWER`, không bao giờ nâng quyền.
@@ -81,6 +84,70 @@ Mọi request /api/v1/crm/*: tenant/user/roles lấy từ CrmSession; mỗi 60s 
 `TenantProduct`, và thu hồi `UserProductAccess` của `CUSTOMER_CARE_CRM`. Cách làm giống
 `TimekeepingProvisioningService`: ghi local trước, gửi sau; chỉ commit hash secret mới khi CRM trả 2xx.
 
+## 3b. Vòng đời chấm dứt / xóa tenant (dùng chung quy trình Platform, 2026-09-24)
+
+CRM **không** có quy trình xóa riêng. Platform giữ `TenantDeletionRequest` (30 ngày) và gọi CRM qua
+**cùng endpoint sự kiện** ở mục 3 (cùng HMAC, cùng chống replay ±5 phút). Không có endpoint
+`/platform-provisioning/tenants/delete` cho CRM.
+
+- **eventId cố định theo bước**: `crmLifecycleEventId(requestId, step)` (UUID v5-like từ sha256), nên
+  Platform thử lại cùng bước luôn dùng cùng `eventId`; các bước khác nhau có `eventId` khác nhau.
+- Body chung: `{ version:1, eventId, occurredAt, type, productCode:"CUSTOMER_CARE_CRM",
+  tenant:{platformTenantId}, deletion:{ requestId, requestedAt, scheduledPurgeAt, retentionDays:30,
+  exportRequired:true, requestedBy:"PLATFORM" } }`.
+- Phản hồi mọi bước (kể cả gửi lại) mang trạng thái sổ xóa CRM, dạng `tenant.purge_status`:
+  `{ accepted, eventId, result, duplicate?, requestId, platformTenantId, productCode, status:
+  PENDING|PROCESSING|COMPLETED|FAILED|CANCELLED, completedAt, errorCode, errorMessage }`. Đây là kênh
+  trả trạng thái đồng bộ; CRM không gọi ngược Platform.
+
+| type | Tác dụng ở CRM |
+|---|---|
+| `tenant.deletion_requested` | Tạo `CrmTenantDeletion` PENDING; đặt `CrmTenant.deletionRequestId` (khóa: không đăng nhập mới, thu hồi mọi phiên, chặn tác vụ mới, worker **giữ** tác vụ chờ); trả `export` + `exportChecksum`. Không xóa gì. Gửi lại khi PENDING ⇒ trả lại bản xuất (đọc-chỉ). |
+| `tenant.deletion_cancelled` | Sổ xóa → CANCELLED (chỉ khi chưa purge), gỡ khóa; quyền lấy **đúng** `entitlement` Platform gửi kèm (SUSPENDED vẫn đóng). Idempotent theo eventId và requestId. |
+| `tenant.purge_requested` | Kiểm `requestId` thuộc đúng tenant, chưa hủy, đã tới `scheduledPurgeAt` (lệch ≤5'); nếu không ⇒ 409 `REQUEST_TENANT_MISMATCH` / `DELETION_NOT_REQUESTED` / `DELETION_CANCELLED` / `PURGE_NOT_DUE`. Xóa dữ liệu tenant trong một transaction; lỗi ⇒ rollback toàn bộ, sổ = FAILED, HTTP 503 `PURGE_FAILED` (lần gửi lại chạy thật lại). Thành công ⇒ COMPLETED + `deletedCounts`; gửi lại ⇒ cùng kết quả, không tác dụng lần hai. |
+
+Bản xuất CRM (đưa vào `exportSnapshot.products.CUSTOMER_CARE_CRM` của Platform, có checksum riêng):
+cấu hình tenant, người dùng/vai trò (từ phiên), installation (không secret), kết nối PETCLINIC (không
+khóa), mẫu tin, khách/lịch chăm sóc (đã giải mã tên/SĐT), opt-out, tài khoản Zalo (chỉ SĐT che), luật
+định tuyến, lịch sử gửi, nhật ký hoạt động (không metadata), sự kiện Platform. Loại trừ đệ quy mọi khóa
+dạng secret/token/password/credential/hash/Enc; không có dữ liệu tenant khác hay cấu hình hệ thống.
+
+Purge chỉ xóa bảng thuộc tenant (webhook/delivery, careJob, sender health, routing, zaloAccount,
+opt-out, template, API credential, nonce, kết nối PETCLINIC, audit của tenant, installation, bộ đếm
+quota, token replay, phiên, `CrmTenant`). Giữ lại: `PlatformEvent` (sổ idempotency), `CrmTenantDeletion`
+(không PII), một dòng audit `TENANT_PURGED` không PII, `SystemSetting`, `AdminUser`, `ControlNonce`.
+
+Phía Platform: khi tạo yêu cầu, gửi `tenant.deletion_requested` sau commit (lỗi ⇒ chỉ ghi trạng thái
+chờ, worker lấy lại bản xuất trước khi purge); **không bao giờ purge CRM khi chưa có bản xuất CRM**;
+chỉ coi CRM đã xóa khi phản hồi `status=COMPLETED` đúng `requestId`/tenant; khác đi ⇒ `PURGE_BLOCKED`,
+ghi lỗi theo sản phẩm, lùi lịch thử lại; chỉ xóa `Tenant` + tạo biên nhận khi mọi sản phẩm COMPLETED.
+
+## 3c. Giao nhận bền vững (outbox Platform, vòng 2 — 2026-09-24)
+
+- Mọi sự kiện **không chứa secret** (`subscription.*`, `user_product_access.revoked`, `installation.revoked`,
+  `tenant.deletion_requested`, `tenant.deletion_cancelled`) được Platform ghi vào bảng `CrmEventOutbox`
+  **trong cùng transaction** với thay đổi nghiệp vụ, rồi gửi ngay sau commit; lỗi thì worker gửi lại.
+  `id` của bản ghi = `eventId` gửi sang CRM, giữ nguyên qua mọi lần thử (lifecycle dùng
+  `crmLifecycleEventId`). `occurredAt` chốt tại thời điểm đổi nghiệp vụ ⇒ CRM vẫn chặn được sự kiện cũ.
+- `installation.upserted` (có client secret) **không** qua outbox: gửi trực tiếp, chỉ lưu hash sau 2xx.
+  Outbox từ chối ghi mọi khóa dạng secret/password/token/credential.
+- Thứ tự: trong một tenant, sự kiện chỉ được gửi khi mọi sự kiện cũ hơn đã DELIVERED/FAILED (khóa trước mở
+  khóa; suspend trước activate). Không gộp/bỏ sự kiện: revoke/suspend không bao giờ bị nuốt; trạng thái
+  cuối thắng vì được gửi sau cùng. Tenant khác độc lập.
+- Lỗi mạng/5xx/429/408 ⇒ thử lại theo 1–5–15–60–180–720–1440 phút (sau đó mỗi ngày, bật cảnh báo);
+  lỗi 4xx khác hoặc phản hồi không khớp requestId/tenant/productCode ⇒ `FAILED`, ghi audit, không tự gửi lại;
+  Platform Admin bấm "Thử lại đồng bộ CRM" (`POST /api/platform/tenants/:id/crm-sync/retry`).
+- Yêu cầu xóa: Platform khóa + ghi `tenant.deletion_requested` cùng transaction; trạng thái CRM trong yêu cầu:
+  `LOCK_PENDING → RETRYING/LOCK_FAILED → LOCKED_EXPORT_READY`. Yêu cầu ở `EXPORT_PENDING` (chưa sẵn sàng,
+  worker purge không nhận) tới khi CRM xác nhận khóa **và** Platform gộp bản xuất CRM (đúng một lần) + checksum.
+- Hủy: Platform khôi phục quyền + ghi `tenant.deletion_cancelled` (kèm entitlement vừa khôi phục) cùng
+  transaction ⇒ `CANCEL_PENDING` ("Đang chờ VETCLINIC CRM mở khóa"). Chỉ khi CRM trả `status=CANCELLED`
+  (hoặc `IGNORED_UNKNOWN_REQUEST`: CRM chưa từng khóa) Platform mới chuyển `CANCELLED` và **xóa ngay**
+  `exportSnapshot`, `exportPreparedAt`, checksum/marker bản xuất, ảnh chụp quyền. `GET deletion-export`
+  sau đó trả **410**. CRM không lưu bản xuất; sổ xóa CRM chỉ giữ metadata + checksum.
+- CRM: `tenant.deletion_cancelled` cũ hơn `entitlementUpdatedAt` chỉ gỡ khóa, không ghi đè entitlement mới
+  (`result=APPLIED_LOCK_ONLY_STALE_ENTITLEMENT`).
+
 ## 4. Biến môi trường (chỉ tên, không có giá trị)
 
 - **CRM:** `CRM_SESSION_SECRET` (≥32 ký tự, khác `ADMIN_SESSION_SECRET`), `CRM_PUBLIC_ORIGIN`,
@@ -89,4 +156,5 @@ Mọi request /api/v1/crm/*: tenant/user/roles lấy từ CrmSession; mỗi 60s 
   `CRM_ENTITLEMENT_RECHECK_SECONDS`, `PLATFORM_ALLOW_HTTP_LOCAL` (chỉ local).
 - **Platform (đề xuất):** `CUSTOMER_CARE_CRM_CALLBACK_BASE_URL`, `CUSTOMER_CARE_CRM_EVENTS_URL`,
   `CUSTOMER_CARE_CRM_EVENTS_SHARED_SECRET` (cùng giá trị với `CRM_PLATFORM_EVENTS_SECRET`, riêng cho
-  kênh này), `CUSTOMER_CARE_CRM_EVENTS_ALLOW_HTTP_LOCAL` (chỉ local).
+  kênh này), `CUSTOMER_CARE_CRM_EVENTS_ALLOW_HTTP_LOCAL` (chỉ local), `CRM_EVENT_OUTBOX_WORKER_ENABLED`,
+  `CRM_EVENT_OUTBOX_WORKER_INTERVAL_SECONDS` (5–3600, mặc định 30).

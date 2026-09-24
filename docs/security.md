@@ -26,6 +26,28 @@
   hold (suspended) or cancel (expired/revoked) queued jobs. Tenants may pause their own auto-send;
   only operators control the global kill switch.
 
+## Tenant termination / purge (Platform lifecycle)
+
+- Only the Platform control plane can lock or purge a tenant, through the HMAC-signed events channel;
+  there is no tenant-user route. The tenant comes from the signed body and must match the stored
+  `CrmTenantDeletion.platformTenantId` for that `requestId` (else `409 REQUEST_TENANT_MISMATCH`).
+- Lock first, purge later: `deletion_requested` only locks (sessions revoked, login/jobs blocked,
+  worker holds) and returns an export. Purge is refused before `scheduledPurgeAt` (`PURGE_NOT_DUE`),
+  after a cancellation, or without a prior request.
+- Purge runs in one transaction limited to the tenant's rows; a failure rolls everything back and marks
+  the ledger FAILED. Shared/system tables (`SystemSetting`, `AdminUser`, `ControlNonce`) and other
+  tenants are never touched. Kept afterwards: the PII-free ledger, the idempotency `PlatformEvent`
+  rows and one PII-free `TENANT_PURGED` audit row.
+- The export never contains client secrets, the shared events secret, session/SSO tokens, full JWTs,
+  encrypted blobs or hashes (recursive key redaction on both CRM and Platform side), nor other tenants.
+  Platform stores it inside `TenantDeletionRequest.exportSnapshot` (contains tenant PII by design).
+- Retention after cancel: once CRM confirms the unlock, Platform deletes the export snapshot, its
+  timestamps/checksums and the access snapshot; downloads return 410. Legacy cancelled requests are swept
+  by the deletion worker. CRM never stores the export; its ledger keeps metadata + checksum only.
+- Durable outbox (Platform): no secret ever enters `CrmEventOutbox` (enforced at write time); stored
+  errors are sanitised (JWT/credential/long-hex patterns removed); contract errors stop retrying and alert
+  Platform Admin instead of hot-looping; each claim is atomic so two Platform instances never double-send.
+
 ## Multi Zalo accounts
 
 - Accounts, routing rules and delivery attempts carry `tenantId`; composite `(id, tenantId)` foreign

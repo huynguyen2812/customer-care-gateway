@@ -21,7 +21,7 @@ const ORIGIN = 'http://crm.test';
 const ISSUER = 'vetclinic.vn-platform-test';
 const EVENTS_SECRET = randomBytes(32).toString('hex');
 
-type Grant = { tenantId: string; userId: string; clientId: string; productCode: string; roles?: string[]; crmRoles?: string[]; expiresAt: number; used: boolean; deny?: 'TENANT_SUSPENDED' | 'NO_ACCESS'; jti?: string; entitlementStatus?: string };
+type Grant = { tenantId: string; userId: string; clientId: string; productCode: string; roles?: string[]; crmRoles?: string[]; expiresAt: number; used: boolean; deny?: 'TENANT_SUSPENDED' | 'NO_ACCESS'; jti?: string; entitlementStatus?: string; redirectUri?: string };
 
 class FakePlatform {
   server!: nodeHttp.Server; base = '';
@@ -51,6 +51,7 @@ class FakePlatform {
           if (g.deny) return send(403, { message: g.deny });
           const claims: Record<string, unknown> = { iss: ISSUER, aud: g.productCode, sub: g.userId, tenantId: g.tenantId, productCode: g.productCode, entitlementStatus: g.entitlementStatus || 'ACTIVE', roles: g.roles || ['ADMIN'], iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 120, jti: g.jti || randomUUID() };
           if (g.crmRoles) claims.crmRoles = g.crmRoles;
+          if (g.redirectUri) claims.redirectUri = g.redirectUri;
           return send(200, { token: this.jwt(claims), claims, user: { id: g.userId, fullName: 'Người dùng QA', username: 'qa' }, tenant: { id: g.tenantId, name: 'Tenant QA' } });
         }
         if (req.url === '/api/platform-auth/session-check') {
@@ -185,6 +186,14 @@ describe('VETCLINIC CRM tenant boundary (Platform SSO, isolation, permissions, e
       const s = await login(A);
       await prisma.crmTenant.update({ where: { platformTenantId: A.tenantId }, data: { callbackBaseUrl: `${ORIGIN}/api/v1/crm` } });
       expect(s.res.headers.location).toBe('/#loi=REDIRECT_MISMATCH');
+    });
+    it('redirectUri claim = registered callbackBaseUrl (what the real Platform sends) is accepted', async () => {
+      const s = await login(A, { redirectUri: `${ORIGIN}/api/v1/crm` });
+      expect(s.res.headers.location).toBe('/#/tong-quan'); expect(s.me.tenant.id).toBe(A.tenantId);
+    });
+    it('redirectUri claim for another origin is rejected', async () => {
+      const s = await login(A, { redirectUri: 'https://evil.test/api/v1/crm' });
+      expect(s.res.headers.location).toBe('/#loi=REDIRECT_MISMATCH'); expect(s.cookie).toBe('');
     });
     it('wrong product code (token for another product) is rejected', async () => {
       const s = await login(A, { productCode: 'PETCLINIC_ESSENTIAL' });

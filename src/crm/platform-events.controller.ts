@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, HttpCode, Post, Req, ServiceUnavailableException, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, HttpCode, HttpException, Post, Req, ServiceUnavailableException, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -6,6 +6,7 @@ import { PrismaService } from '../common/prisma.service';
 import { CryptoService } from '../common/crypto.service';
 import { CRM_PRODUCT_CODE } from './crm.constants';
 import { crmCallbackBase } from './crm-auth.controller';
+import { DeletionInput, LIFECYCLE_TX, LIFECYCLE_TYPES, TenantLifecycleService } from './tenant-lifecycle.service';
 
 const TYPE_ALIASES: Record<string, string> = { UPSERT_INSTALLATION: 'installation.upserted', REVOKE_INSTALLATION: 'installation.revoked' };
 const TYPES = new Set(['installation.upserted', 'installation.revoked', 'subscription.activated', 'subscription.changed', 'subscription.suspended', 'subscription.expired', 'user_product_access.revoked']);
@@ -25,7 +26,7 @@ function toDate(v: unknown): Date | null { if (!v) return null; const d = new Da
  */
 @Controller('crm/platform')
 export class PlatformEventsController {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly lifecycle: TenantLifecycleService) {}
 
   @Post('events')
   @HttpCode(200)
@@ -43,12 +44,14 @@ export class PlatformEventsController {
     if (body?.eventId !== undefined && body.eventId !== eventId) throw new UnauthorizedException('Event id mismatch');
 
     const type = TYPE_ALIASES[String(body?.action || '')] || String(body?.type || '');
-    if (!TYPES.has(type)) throw new BadRequestException('Unsupported event type');
+    if (!TYPES.has(type) && !LIFECYCLE_TYPES.has(type)) throw new BadRequestException('Unsupported event type');
     const platformTenantId = String(body?.tenant?.platformTenantId || body?.tenantId || '');
     if (!UUID.test(platformTenantId)) throw new BadRequestException('Invalid tenant');
     const productCode = body?.entitlement?.productCode ?? body?.productCode;
     if (productCode !== undefined && productCode !== CRM_PRODUCT_CODE) throw new UnprocessableEntityException('Wrong product');
     const occurredAt = toDate(body?.occurredAt) || new Date(Number(timestamp));
+
+    if (LIFECYCLE_TYPES.has(type)) return this.receiveLifecycle(eventId, type, platformTenantId, occurredAt, body);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -64,10 +67,9 @@ export class PlatformEventsController {
     }
   }
 
-  private async apply(tx: Prisma.TransactionClient, type: string, platformTenantId: string, occurredAt: Date, body: Record<string, any>): Promise<string> {
-    const existing = await tx.crmTenant.findUnique({ where: { platformTenantId } });
+  private entitlementData(body: Record<string, any>) {
     const ent = body?.entitlement || {};
-    const entitlementData = {
+    return {
       ...(typeof ent.status === 'string' ? { entitlementStatus: ent.status.slice(0, 20) } : {}),
       ...(ent.planCode !== undefined ? { planCode: ent.planCode ? String(ent.planCode).slice(0, 64) : null } : {}),
       ...(ent.limits !== undefined ? { limits: ent.limits ?? Prisma.JsonNull } : {}),
@@ -75,6 +77,54 @@ export class PlatformEventsController {
       ...(ent.startsAt !== undefined ? { entitlementStartsAt: toDate(ent.startsAt) } : {}),
       ...(ent.expiresAt !== undefined ? { entitlementExpiresAt: toDate(ent.expiresAt) } : {}),
     };
+  }
+
+  /**
+   * Termination lifecycle. Same signature/replay checks as every other event, but a redelivery answers
+   * with the current ledger status (and re-issues a pending export) instead of a bare `duplicate`, because
+   * Platform decides COMPLETED/PURGE_BLOCKED from this body. A failed purge rolls back everything,
+   * including the event row, so the next Platform retry with the same eventId genuinely runs again.
+   */
+  private async receiveLifecycle(eventId: string, type: string, platformTenantId: string, occurredAt: Date, body: Record<string, any>) {
+    const input = this.lifecycle.parseDeletion(body);
+    if (await this.prisma.platformEvent.findUnique({ where: { eventId } })) return this.replay(eventId, type, platformTenantId, input);
+    if (type === 'tenant.purge_requested') await this.lifecycle.assertPurgeAllowed(platformTenantId, input);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.platformEvent.create({ data: { eventId, type, platformTenantId, occurredAt, result: 'PROCESSING' } });
+        const out: { result: string; status: object | null; export?: unknown; exportChecksum?: string | null } =
+          type === 'tenant.deletion_requested' ? await this.lifecycle.requestDeletion(tx, platformTenantId, input)
+          : type === 'tenant.deletion_cancelled' ? await this.lifecycle.cancelDeletion(tx, platformTenantId, input.requestId, this.entitlementData(body), occurredAt)
+          : await this.lifecycle.purge(tx, platformTenantId, input.requestId);
+        await tx.platformEvent.update({ where: { eventId }, data: { result: out.result } });
+        await tx.auditLog.create({ data: { tenantId: platformTenantId, actorType: 'PLATFORM', actorId: 'platform-admin', action: `PLATFORM_EVENT_${type.replace(/[.]/g, '_').toUpperCase()}`, targetType: 'CrmTenant', targetId: platformTenantId, result: out.result === 'APPLIED' ? 'SUCCESS' : 'NO_CHANGE', reason: out.result, metadata: { eventId, requestId: input.requestId } } });
+        return { accepted: true, eventId, result: out.result, ...(out.status ?? {}), ...(out.export !== undefined ? { export: out.export, exportChecksum: out.exportChecksum } : {}) };
+      }, LIFECYCLE_TX);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && String(error.meta?.target ?? '').includes('eventId')) return this.replay(eventId, type, platformTenantId, input);
+      if (type === 'tenant.purge_requested' && !(error instanceof HttpException && error.getStatus() < 500)) {
+        throw this.lifecycle.failure(await this.lifecycle.markFailed(input.requestId, error));
+      }
+      throw error;
+    }
+  }
+
+  private async replay(eventId: string, type: string, platformTenantId: string, input: DeletionInput) {
+    const status = await this.lifecycle.currentStatus(input.requestId);
+    if (status && status.platformTenantId !== platformTenantId) throw new ConflictException('REQUEST_TENANT_MISMATCH');
+    const base = { accepted: true, eventId, duplicate: true, ...(status ?? {}) };
+    if (type !== 'tenant.deletion_requested' || status?.status !== 'PENDING') return base;
+    // Platform may have lost the first response: re-issue the export (read-only) so it is never stranded.
+    const exported = await this.prisma.$transaction((tx) => this.lifecycle.buildExport(tx, platformTenantId), LIFECYCLE_TX);
+    const exportChecksum = createHash('sha256').update(JSON.stringify(exported)).digest('hex');
+    await this.prisma.crmTenantDeletion.update({ where: { requestId: input.requestId }, data: { exportChecksum } });
+    return { ...base, export: exported, exportChecksum };
+  }
+
+  private async apply(tx: Prisma.TransactionClient, type: string, platformTenantId: string, occurredAt: Date, body: Record<string, any>): Promise<string> {
+    const existing = await tx.crmTenant.findUnique({ where: { platformTenantId } });
+    const ent = body?.entitlement || {};
+    const entitlementData = this.entitlementData(body);
     // Out-of-order delivery must not roll entitlement back to an older state.
     const stale = existing?.entitlementUpdatedAt && existing.entitlementUpdatedAt > occurredAt;
 

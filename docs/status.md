@@ -34,9 +34,30 @@ No production-readiness claim is made.
 
 - Tenant-scoped `/api/v1/crm/*`, Platform SSO consumer, signed Platform events, migration 0006: PASS
   on local QA database only (unit 18/18, integration 41/41 incl. 34 CRM tenant/IDOR/entitlement tests).
-- Browser E2E against a QA-only fake Platform: PASS (39/39). E2E with the real Platform: BLOCKED
-  (Platform has no `CUSTOMER_CARE_CRM` product, launcher or events yet — see docs/crm-platform-contract.md).
+- Browser E2E against a QA-only fake Platform: PASS (39/39). E2E with the real Platform: BLOCKED at
+  the time; superseded 2026-09-24 — see "Platform ↔ CRM real E2E" below (API-level, not browser).
 - Production approval/release: NOT RUN.
+
+## Platform ↔ CRM vòng 2 — outbox bền vững, khóa/hủy khi CRM sập, xóa bản xuất sau hủy (2026-09-24, chưa commit, chờ Codex review)
+
+- CRM: cancel cũ hơn entitlement hiện tại chỉ gỡ khóa; sổ xóa sau hủy không PII. Unit 22/22, integration
+  115/115 (DB QA `ccg_deletion_e2e`).
+- Platform: outbox `CrmEventOutbox` + worker, `CANCEL_PENDING`, xóa bản xuất sau hủy xác nhận (2 migration
+  forward-only). Chi tiết + kết quả E2E HTTP thật và browser E2E: repo Platform
+  `docs/qa/claude-platform-crm-e2e-and-deletion-round2-2026-09-24.md`.
+- Production: NOT RUN. Không production-approved.
+
+## Platform ↔ CRM real E2E + tenant termination (2026-09-24, chưa commit, chờ Codex review)
+
+- E2E thật Platform API (build) ↔ CRM gateway (build) qua HTTP thật, 2 DB QA riêng
+  (`qa_crm_e2e_platform`, `ccg_platform_e2e`): PASS 76/76 + 1 NOT RUN (không có route purge cho người
+  dùng tenant nên không có gì để gọi). Harness và chi tiết: repo Platform `scripts/qa/crm-platform-e2e.mjs`,
+  `docs/qa/claude-platform-crm-e2e-and-deletion-2026-09-24.md`.
+- Lỗi thật tìm ra nhờ E2E: CRM từ chối `redirectUri` = `callbackBaseUrl` mà Platform gửi ⇒ mọi đăng
+  nhập thật thất bại `REDIRECT_MISMATCH`. Đã sửa + 2 test hồi quy.
+- Vòng đời xóa tenant (migration 0010 forward-only, `TenantLifecycleService`): unit 22/22, integration
+  113/113 (gồm 9 test xóa tenant, 2 test redirectUri) trên DB QA `ccg_deletion_e2e`.
+- Production: NOT RUN. Không production-approved.
 
 ## Multi Zalo accounts (2026-09-23, same branch, uncommitted, awaiting Codex review)
 

@@ -21,8 +21,8 @@ export class TenantAccessService {
     if (!tenant) return { action: 'SEND' };
     if (!entitlementUsable(tenant)) {
       const code = entitlementDenyCode(tenant);
-      // Suspension may be lifted, so queued work is held; expiry/revocation ends it.
-      return code === 'ENTITLEMENT_SUSPENDED' || code === 'ENTITLEMENT_INACTIVE' ? { action: 'HOLD', code } : { action: 'CANCEL', code };
+      // Suspension or a pending deletion may be lifted, so queued work is held; expiry/revocation ends it.
+      return code === 'ENTITLEMENT_SUSPENDED' || code === 'ENTITLEMENT_INACTIVE' || code === 'TENANT_DELETION_PENDING' ? { action: 'HOLD', code } : { action: 'CANCEL', code };
     }
     if (tenant.autoSendPaused) return { action: 'HOLD', code: 'TENANT_PAUSED' };
     return { action: 'SEND' };

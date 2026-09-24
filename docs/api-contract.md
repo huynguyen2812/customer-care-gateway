@@ -73,6 +73,33 @@ rule (tier 2) > tenant default (tier 3); event-specific rules first; then rule p
 today's load, id. Sticky per job. No eligible account ⇒ job requeued `NO_ELIGIBLE_ACCOUNT` (never MOCK).
 Sender-facing contract: `docs/multi-zalo-sender-contract.md`.
 
+## Platform tenant termination lifecycle (2026-09-24)
+
+`POST /api/v1/crm/platform/events` (same HMAC headers as every Platform event, see
+`docs/crm-platform-contract.md` §3/§3b) also accepts `tenant.deletion_requested`,
+`tenant.deletion_cancelled` and `tenant.purge_requested`, each with
+`deletion: { requestId, requestedAt, scheduledPurgeAt, retentionDays }`. There is no separate delete
+endpoint. Response `200` = `{ accepted, eventId, result, requestId, platformTenantId, productCode,
+status, completedAt, errorCode, errorMessage }` (+ `export`, `exportChecksum` for a PENDING request).
+Errors: `401` signature/stale, `409` `REQUEST_TENANT_MISMATCH | DELETION_NOT_REQUESTED |
+DELETION_CANCELLED | DELETION_ALREADY_OPEN | PURGE_NOT_DUE`, `503 PURGE_FAILED` (rolled back; retry
+with the same `eventId` runs again). While a deletion is open, existing CRM sessions are revoked (`401`), a new login returns
+`/#loi=ENTITLEMENT_INACTIVE`, the entitlement gate answers `403 TENANT_DELETION_PENDING`, source
+products cannot create care jobs, and the worker holds (does not cancel) queued jobs.
+
+Redelivery: Platform's durable outbox retries the same `eventId` for days; the CRM answers a duplicate
+with the current ledger status and never re-applies it. A `tenant.deletion_cancelled` whose `occurredAt` is
+older than the tenant's `entitlementUpdatedAt` lifts the lock only (`APPLIED_LOCK_ONLY_STALE_ENTITLEMENT`).
+
+Platform-side (for reference, not served by CRM): `GET /api/platform/tenants/:id/crm-sync` (sync state,
+last delivery, last error — no payload), `POST /api/platform/tenants/:id/crm-sync/retry`,
+`POST /api/platform/crm-event-outbox/run-due`; `GET /api/platform/tenants/:id/deletion-export` returns
+`410` once a cancellation is confirmed.
+
+SSO callback: the token-exchange `redirectUri` claim, when present, must equal the provisioned
+`callbackBaseUrl` (`{CRM_PUBLIC_ORIGIN}/api/v1/crm`) or the full callback URL; anything else is
+`REDIRECT_MISMATCH`.
+
 ## Sender v2 — vòng 2 (2026-09-24)
 
 - `POST /crm/zalo-accounts/:id/sender/register` (`crm.zalo.manage` + entitlement): đăng ký (lại) account với sender v2,

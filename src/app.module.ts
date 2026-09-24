@@ -35,6 +35,7 @@ import { PlatformClientService } from './crm/platform-client.service';
 import { PlatformEventsController } from './crm/platform-events.controller';
 import { SenderHealthController } from './channel/sender-health.controller';
 import { TenantAccessService } from './crm/tenant-access.service';
+import { TenantLifecycleService } from './crm/tenant-lifecycle.service';
 import { AccountSelectorService } from './delivery/account-selector.service';
 import { QuotaService } from './delivery/quota.service';
 import { ZaloAccountsService } from './crm/zalo-accounts.service';
@@ -69,6 +70,7 @@ import { ZaloAccountsService } from './crm/zalo-accounts.service';
     CrmAuthGuard,
     CrmDataService,
     TenantAccessService,
+    TenantLifecycleService,
     AccountSelectorService,
     QuotaService,
     ZaloAccountsService,

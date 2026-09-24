@@ -12,7 +12,7 @@
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
     "test": "jest --runInBand --testPathIgnorePatterns=integration",
-    "test:integration": "jest --runInBand --runTestsByPath test/tenant-isolation.integration.spec.ts test/worker-flow.integration.spec.ts test/http-auth.integration.spec.ts test/petclinic-sync.integration.spec.ts test/crm-tenant.integration.spec.ts test/multi-zalo.integration.spec.ts test/sender-v2-gateway.integration.spec.ts",
+    "test:integration": "jest --runInBand --runTestsByPath test/tenant-isolation.integration.spec.ts test/worker-flow.integration.spec.ts test/http-auth.integration.spec.ts test/petclinic-sync.integration.spec.ts test/crm-tenant.integration.spec.ts test/multi-zalo.integration.spec.ts test/sender-v2-gateway.integration.spec.ts test/tenant-deletion.integration.spec.ts",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "pilot:petclinic:configure": "ts-node scripts/configure-petclinic-pilot.ts"

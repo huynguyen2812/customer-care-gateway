@@ -55,7 +55,9 @@ export class CrmAuthController {
     }
     const c = result.claims;
     if (c.tenantId !== tenant.platformTenantId || c.productCode !== CRM_PRODUCT_CODE) return fail('ACCESS_DENIED');
-    if (typeof c.redirectUri === 'string' && c.redirectUri !== `${crmCallbackBase()}/auth/platform/callback`) return fail('REDIRECT_MISMATCH');
+    // Platform binds the code to the installation's registered `callbackBaseUrl` (same value for every
+    // SSO product); accept exactly that, or the full callback URL, and nothing else.
+    if (typeof c.redirectUri === 'string' && ![crmCallbackBase(), `${crmCallbackBase()}/auth/platform/callback`].includes(c.redirectUri.replace(/\/$/, ''))) return fail('REDIRECT_MISMATCH');
     if (typeof c.entitlementStatus === 'string' && !USABLE_ENTITLEMENTS.has(c.entitlementStatus)) return fail('ENTITLEMENT_INACTIVE');
     if (!entitlementUsable(tenant)) return fail('ENTITLEMENT_INACTIVE');
     try {

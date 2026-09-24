@@ -59,7 +59,8 @@ export function mapPlatformRoles(claims: Record<string, unknown>): CrmRole[] {
 /** Platform TenantProduct statuses that allow using the product. */
 export const USABLE_ENTITLEMENTS = new Set(['TRIAL', 'ACTIVE']);
 
-export function entitlementUsable(tenant: { entitlementStatus: string; entitlementExpiresAt: Date | null; entitlementStartsAt: Date | null; installationStatus: string }, now = new Date()): boolean {
+export function entitlementUsable(tenant: { entitlementStatus: string; entitlementExpiresAt: Date | null; entitlementStartsAt: Date | null; installationStatus: string; deletionRequestId?: string | null }, now = new Date()): boolean {
+  if (tenant.deletionRequestId) return false;
   if (tenant.installationStatus !== 'ACTIVE') return false;
   if (!USABLE_ENTITLEMENTS.has(tenant.entitlementStatus)) return false;
   if (tenant.entitlementExpiresAt && tenant.entitlementExpiresAt <= now) return false;
@@ -68,7 +69,8 @@ export function entitlementUsable(tenant: { entitlementStatus: string; entitleme
 }
 
 /** Reason code the UI can explain in customer language. */
-export function entitlementDenyCode(tenant: { entitlementStatus: string; entitlementExpiresAt: Date | null; installationStatus: string }, now = new Date()): string {
+export function entitlementDenyCode(tenant: { entitlementStatus: string; entitlementExpiresAt: Date | null; installationStatus: string; deletionRequestId?: string | null }, now = new Date()): string {
+  if (tenant.deletionRequestId) return 'TENANT_DELETION_PENDING';
   if (tenant.installationStatus === 'REVOKED') return 'INSTALLATION_REVOKED';
   if (tenant.entitlementStatus === 'SUSPENDED') return 'ENTITLEMENT_SUSPENDED';
   if (tenant.entitlementStatus === 'EXPIRED' || (tenant.entitlementExpiresAt && tenant.entitlementExpiresAt <= now)) return 'ENTITLEMENT_EXPIRED';

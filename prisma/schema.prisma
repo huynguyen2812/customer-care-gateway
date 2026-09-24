@@ -403,9 +403,35 @@ model CrmTenant {
   autoSendPaused          Boolean      @default(false)
   autoSendPausedAt        DateTime?
   autoSendPausedBy        String?      @db.VarChar(160)
+  // Set by Platform `tenant.deletion_requested`; locks login, new jobs and sending (held, not cancelled).
+  deletionRequestId       String?      @db.Uuid
+  deletionRequestedAt     DateTime?
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
   sessions                CrmSession[]
+}
+
+// Deletion ledger. No FK to CrmTenant on purpose: it must survive the purge so a Platform retry with
+// the same requestId returns the same result. Holds no personal data.
+model CrmTenantDeletion {
+  requestId        String    @id @db.Uuid
+  platformTenantId String    @db.Uuid
+  status           String    @db.VarChar(20)
+  requestedAt      DateTime
+  scheduledPurgeAt DateTime
+  retentionDays    Int
+  exportChecksum   String?   @db.VarChar(64)
+  cancelledAt      DateTime?
+  purgeStartedAt   DateTime?
+  completedAt      DateTime?
+  purgeAttempts    Int       @default(0)
+  deletedCounts    Json?
+  errorCode        String?   @db.VarChar(80)
+  errorMessage     String?   @db.VarChar(500)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([platformTenantId])
 }
 
 model CrmSession {
