@@ -218,9 +218,10 @@ export class ZaloAccountsService {
   }
 
   async loginStart(ctx: CrmContext, id: string) {
-    const a = await this.own(ctx, id);
+    let a = await this.own(ctx, id);
     if (a.channel === 'PERSONAL_ZALO' && !a.senderBaseUrl && senderV2Config()) {
-      throw new ServiceUnavailableException({ code: 'SENDER_REGISTRATION_PENDING', message: 'Tài khoản chưa đăng ký được với dịch vụ gửi tin. Bấm "Thử đăng ký lại" rồi đăng nhập.' });
+      await this.registerWithSender(ctx, a.id);
+      a = await this.own(ctx, a.id);
     }
     if (a.channel !== 'PERSONAL_ZALO' || !capabilitiesOf(a).qrLogin || !a.senderBaseUrl) {
       await this.audit(ctx, 'ZALO_ACCOUNT_LOGIN_START', a.id, { supported: false }, 'NO_CHANGE');
