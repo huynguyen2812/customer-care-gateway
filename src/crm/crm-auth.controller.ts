@@ -15,6 +15,17 @@ const CLIENT_ID_PATTERN = /^[A-Za-z0-9._-]{4,100}$/;
 function secure() { return process.env.NODE_ENV === 'production'; }
 export function crmPublicOrigin(): string { return (process.env.CRM_PUBLIC_ORIGIN || '').replace(/\/$/, ''); }
 export function crmCallbackBase(): string { return `${crmPublicOrigin()}/api/v1/crm`; }
+export function platformWebOrigin(): string {
+  const raw = (process.env.PLATFORM_WEB_ORIGIN || '').replace(/\/$/, '');
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (process.env.NODE_ENV === 'production' && (url.protocol !== 'https:' || url.hostname !== 'admin.vetclinic.vn')) return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
+}
 
 @Controller('crm/auth')
 export class CrmAuthController {
@@ -23,7 +34,7 @@ export class CrmAuthController {
   /** Starts Platform SSO: state in a short-lived HttpOnly cookie, then the Platform launcher. */
   @Get('start')
   start(@Res() res: Response) {
-    const launcher = (process.env.PLATFORM_WEB_ORIGIN || '').replace(/\/$/, '');
+    const launcher = platformWebOrigin();
     if (!launcher || !crmPublicOrigin()) return res.redirect(302, '/#loi=CRM_NOT_CONFIGURED');
     const state = randomBytes(32).toString('base64url');
     res.cookie(CRM_STATE_COOKIE, state, { httpOnly: true, secure: secure(), sameSite: 'lax', path: '/api/v1/crm/auth', maxAge: 10 * 60_000 });
@@ -82,7 +93,7 @@ export class CrmAuthController {
       tenant: { id: crm.platformTenantId, name: crm.tenant.displayName },
       roles: crm.roles, permissions: crm.permissions, csrfToken: crm.csrf, expiresAt: crm.expiresAt,
       entitlement: { status: crm.tenant.entitlementStatus, planCode: crm.tenant.planCode, expiresAt: crm.tenant.entitlementExpiresAt },
-      platformAccountUrl: process.env.PLATFORM_WEB_ORIGIN ? `${process.env.PLATFORM_WEB_ORIGIN.replace(/\/$/, '')}/account` : null,
+      platformAccountUrl: platformWebOrigin() ? `${platformWebOrigin()}/account` : null,
     };
   }
 

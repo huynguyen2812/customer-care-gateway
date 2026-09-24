@@ -151,7 +151,7 @@ ghi lỗi theo sản phẩm, lùi lịch thử lại; chỉ xóa `Tenant` + tạ
 ## 4. Biến môi trường (chỉ tên, không có giá trị)
 
 - **CRM:** `CRM_SESSION_SECRET` (≥32 ký tự, khác `ADMIN_SESSION_SECRET`), `CRM_PUBLIC_ORIGIN`,
-  `PLATFORM_WEB_ORIGIN`, `PLATFORM_API_BASE_URL` (gồm `/api`), `PLATFORM_AUTH_ISSUER`,
+  `PLATFORM_WEB_ORIGIN=https://admin.vetclinic.vn`, `PLATFORM_API_BASE_URL` (gồm `/api`), `PLATFORM_AUTH_ISSUER`,
   `PLATFORM_JWKS_URL` (tùy chọn), `CRM_PLATFORM_EVENTS_SECRET`, `CRM_SESSION_TTL_HOURS`,
   `CRM_ENTITLEMENT_RECHECK_SECONDS`, `PLATFORM_ALLOW_HTTP_LOCAL` (chỉ local).
 - **Platform (đề xuất):** `CUSTOMER_CARE_CRM_CALLBACK_BASE_URL`, `CUSTOMER_CARE_CRM_EVENTS_URL`,
