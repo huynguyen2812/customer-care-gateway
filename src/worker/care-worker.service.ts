@@ -86,8 +86,13 @@ export class CareWorkerService {
   }
 
   private async sourceStillValid(job: CareJob, installation: Installation): Promise<boolean> {
-    if (job.sourceProduct === 'PETCLINIC_OPERATING') return this.petclinic.verify(job.installationId, job.externalReferenceId, job.scheduledAt);
     if (job.sourceProduct === 'B2B_SALE') return this.b2b.revalidate(installation.tenantId, job.externalReferenceId);
+    if (job.sourceProduct === 'PETCLINIC_OPERATING' || job.sourceProduct === 'PETCLINIC_ESSENTIAL') {
+      // Backward compatibility: older installations may still use the generic signed verify callback.
+      // Once a dedicated PETCLINIC connection exists, the stronger revision/time revalidation is mandatory.
+      const connection = await this.prisma.petclinicConnection.findUnique({ where: { installationId: job.installationId }, select: { id: true } });
+      if (connection) return this.petclinic.verify(job.installationId, job.externalReferenceId, job.sourceAppointmentAt, job.sourceRevision);
+    }
     if (!installation.sourceVerifyUrl || !installation.callbackSecretEnc) return false;
     return this.verifier.verify(installation.sourceVerifyUrl, this.crypto.decrypt(installation.callbackSecretEnc), { externalReferenceId: job.externalReferenceId, sourceProduct: job.sourceProduct, eventType: job.eventType, scheduledAt: job.scheduledAt.toISOString() });
   }

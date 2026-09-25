@@ -29,11 +29,17 @@ export class CareJobsService {
     const phoneE164 = normalizeVietnamPhone(input.recipient.phone);
     const phoneHash = this.crypto.phoneHash(phoneE164);
     if (await this.prisma.optOut.findUnique({ where: { installationId_phoneHash: { installationId: ctx.installationId, phoneHash } } })) return { status: 'OPTED_OUT', accepted: false };
+    const sourceAppointmentAt = input.sourceAppointmentAt ? new Date(input.sourceAppointmentAt) : null;
+    if (sourceAppointmentAt && Number.isNaN(sourceAppointmentAt.getTime())) throw new BadRequestException('Invalid sourceAppointmentAt');
+    const sourceRevision = input.sourceRevision === undefined || input.sourceRevision === null ? null : String(input.sourceRevision);
+    if (sourceRevision !== null && (!sourceRevision.trim() || sourceRevision.length > 100)) throw new BadRequestException('Invalid sourceRevision');
     const normalized = {
       externalReferenceId: String(input.externalReferenceId), sourceProduct: input.sourceProduct,
       eventType: String(input.eventType), recipient: { name: String(input.recipient.name), phoneE164 },
       templateCode: String(input.templateCode), templateVariables: input.templateVariables || {},
       scheduledAt: new Date(input.scheduledAt).toISOString(), consentStatus: input.consentStatus,
+      sourceAppointmentAt: sourceAppointmentAt?.toISOString() ?? null,
+      sourceRevision,
     };
     const requestHash = sha256(canonicalJson(normalized));
     const existing = await this.prisma.careJob.findUnique({ where: { installationId_idempotencyKey: { installationId: ctx.installationId, idempotencyKey: String(input.idempotencyKey) } } });
@@ -49,7 +55,9 @@ export class CareJobsService {
         externalReferenceId: normalized.externalReferenceId, sourceProduct: ctx.sourceProduct as SourceProduct,
         eventType: normalized.eventType, recipientNameEnc: this.crypto.encrypt(normalized.recipient.name),
         phoneEnc: this.crypto.encrypt(phoneE164), phoneHash, templateCode: normalized.templateCode,
-        templateVariables: normalized.templateVariables as Prisma.InputJsonValue, scheduledAt: new Date(normalized.scheduledAt), consentStatus: input.consentStatus,
+        templateVariables: normalized.templateVariables as Prisma.InputJsonValue, scheduledAt: new Date(normalized.scheduledAt),
+        sourceAppointmentAt: normalized.sourceAppointmentAt ? new Date(normalized.sourceAppointmentAt) : null,
+        sourceRevision: normalized.sourceRevision, consentStatus: input.consentStatus,
       }});
       return { id: created.id, status: created.status, replay: false };
     } catch (error) {

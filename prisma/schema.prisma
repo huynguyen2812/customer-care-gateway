@@ -112,9 +112,16 @@ model PetclinicConnection {
   id String @id @default(uuid()) @db.Uuid
   installationId String @unique @db.Uuid
   apiBaseUrl String
-  apiTokenEnc String
+  apiTokenEnc String?
   apiTenantId String @db.VarChar(160)
   allowedBranchIds String[]
+  sourceProduct SourceProduct @default(PETCLINIC_OPERATING)
+  credentialKeyId String? @db.VarChar(80)
+  credentialExpiresAt DateTime?
+  sourceUpdatedAt DateTime?
+  sourceInstallationId String? @unique @db.Uuid
+  sourceRevision Int?
+  contractVersion Int @default(1)
   pilotAllowedPhoneHashes String[]
   appointmentsPath String @default("/clinic-service/api/v1/clinic/appointments")
   reminderLeadMinutes Int @default(1440)
@@ -172,6 +179,8 @@ model CareJob {
   templateCode String @db.VarChar(100)
   templateVariables Json
   scheduledAt DateTime
+  sourceAppointmentAt DateTime?
+  sourceRevision String? @db.VarChar(100)
   consentStatus ConsentStatus
   status CareJobStatus @default(QUEUED)
   attempts Int @default(0)
@@ -475,6 +484,7 @@ model PlatformEvent {
   occurredAt       DateTime?
   receivedAt       DateTime  @default(now())
   result           String    @db.VarChar(40)
+  payloadHash      String?   @db.Char(64)
 
   @@index([platformTenantId, receivedAt])
 }

@@ -11,8 +11,9 @@ describe('operating PETCLINIC sync (real PostgreSQL + loopback source API)', () 
   const prisma = new PrismaClient();
   const crypto = new CryptoService();
   const client = new PetclinicClientService(crypto);
-  const jobs = new CareJobsService(prisma as any, crypto, new TenantAccessService(prisma as any));
-  const sync = new PetclinicSyncService(prisma as any, crypto, client, jobs);
+  const tenantAccess = new TenantAccessService(prisma as any);
+  const jobs = new CareJobsService(prisma as any, crypto, tenantAccess);
+  const sync = new PetclinicSyncService(prisma as any, crypto, client, jobs, tenantAccess);
   let server: Server; let baseUrl = ''; let installationId = '';
   let status = 'SCHEDULED';
   let appointmentTime = new Date(Date.now() + 2 * 86400_000).toISOString();
@@ -23,19 +24,28 @@ describe('operating PETCLINIC sync (real PostgreSQL + loopback source API)', () 
     await prisma.$connect();
     server = createServer((req, res) => {
       expect(req.headers.authorization).toBe('Bearer test-petclinic-token-32-characters');
-      expect(req.headers['x-tenant-id']).toBe('petclinic-tenant-test');
+      expect(req.headers['x-tenant-id']).toBeUndefined();
+      if (req.method === 'POST' && req.url?.endsWith('/appointments/appt-pilot-1/revalidate')) {
+        let raw = ''; req.on('data', (chunk) => { raw += chunk; }); req.on('end', () => {
+          const body = JSON.parse(raw);
+          const eligible = status === 'SCHEDULED' && body.expectedAppointmentTime === appointmentTime && body.expectedRevision === 'revision-current';
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ data: { eligible, reasonCode: eligible ? 'ELIGIBLE' : 'APPOINTMENT_CHANGED', appointmentId: 'appt-pilot-1' } }));
+        });
+        return;
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ data: { content: [{
         id: 'appt-pilot-1', appointmentTime, status, branchId: 'branch-approved',
         ownerName: 'Khach Pilot', ownerPhone: '0901234567', petName: 'Miu',
-        serviceName: 'Kham tong quat', messagingConsent: true,
-      }] } }));
+        serviceName: 'Kham tong quat', messagingConsent: true, revision: 'revision-current',
+      }], last: true, totalPages: 1 } }));
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('No test port');
     baseUrl = `http://127.0.0.1:${address.port}`;
     const installation = await prisma.installation.create({ data: {
-      tenantId: randomUUID(), sourceProduct: SourceProduct.PETCLINIC_OPERATING, status: 'ACTIVE',
+      tenantId: randomUUID(), sourceProduct: SourceProduct.PETCLINIC_ESSENTIAL, status: 'ACTIVE',
       scopes: ['care:job:create', 'care:job:read', 'care:job:cancel'], dailyQuota: 20,
     }});
     installationId = installation.id;
@@ -67,12 +77,12 @@ describe('operating PETCLINIC sync (real PostgreSQL + loopback source API)', () 
     const rescheduled = await sync.sync(installationId, { commit: true }, 'integration-test');
     expect(rescheduled).toMatchObject({ created: 1, cancelled: 1 });
     expect(await prisma.careJob.count({ where: { installationId, status: 'QUEUED' } })).toBe(1);
-    expect(await sync.verify(installationId, 'appointment:appt-pilot-1', new Date())).toBe(true);
+    expect(await sync.verify(installationId, 'appointment:appt-pilot-1', new Date(appointmentTime), 'revision-current')).toBe(true);
 
     status = 'CANCELLED';
     const cancelled = await sync.sync(installationId, { commit: true }, 'integration-test');
     expect(cancelled.cancelled).toBe(1);
-    expect(await sync.verify(installationId, 'appointment:appt-pilot-1', new Date())).toBe(false);
+    expect(await sync.verify(installationId, 'appointment:appt-pilot-1', new Date(appointmentTime), 'revision-current')).toBe(false);
     expect(await prisma.careJob.count({ where: { installationId, status: 'QUEUED' } })).toBe(0);
   });
 });

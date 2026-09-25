@@ -8,6 +8,7 @@ export type PetclinicAppointment = {
   petName: string;
   serviceName: string;
   consentGranted: boolean;
+  revision: string;
 };
 
 const text = (value: unknown): string => value == null ? '' : String(value).trim();
@@ -31,6 +32,7 @@ export function normalizeAppointment(value: Record<string, any>): PetclinicAppoi
     petName: text(value.petName || pet.name),
     serviceName: text(value.serviceName || service.name),
     consentGranted: value.messagingConsent === true || value.zaloConsent === true || value.consentToContact === true,
+    revision: text(value.revision),
   };
 }
 

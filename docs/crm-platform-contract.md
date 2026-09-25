@@ -84,6 +84,66 @@ Mọi request /api/v1/crm/*: tenant/user/roles lấy từ CrmSession; mỗi 60s 
 `TenantProduct`, và thu hồi `UserProductAccess` của `CUSTOMER_CARE_CRM`. Cách làm giống
 `TimekeepingProvisioningService`: ghi local trước, gửi sau; chỉ commit hash secret mới khi CRM trả 2xx.
 
+### 3a. Nguồn PETCLINIC → CRM
+
+Platform chuyển tiếp trạng thái nguồn PETCLINIC qua chính endpoint và cơ chế HMAC/chống replay ở
+mục 3. `productCode` của sự kiện nguồn là `PETCLINIC_ESSENTIAL` (nguồn mới) hoặc
+`PETCLINIC_OPERATING` (tương thích dữ liệu cũ); tenant phải đã tồn tại trong CRM. CRM không đọc
+database PETCLINIC hay nhận tenant từ trình duyệt.
+
+DTO bắt buộc:
+
+```json
+{
+  "version": 1,
+  "eventId": "uuid",
+  "type": "petclinic_source.upserted",
+  "occurredAt": "ISO-8601",
+  "productCode": "PETCLINIC_ESSENTIAL",
+  "tenant": { "platformTenantId": "uuid" },
+  "source": {
+    "sourceProduct": "PETCLINIC_ESSENTIAL",
+    "installationId": "uuid",
+    "revision": 1,
+    "apiBaseUrl": "https://petclinic.example",
+    "apiTenantId": "uuid",
+    "allowedBranchIds": ["uuid"],
+    "appointmentsPath": "/clinic-service/api/v1/clinic/appointments",
+    "credential": { "keyId": "public-key-id", "token": "ONE_TIME_TOKEN" },
+    "credentialExpiresAt": "ISO-8601"
+  }
+}
+```
+
+`status_changed` thêm `source.status`; `revoked` chỉ cần identity + revision; `upserted` và
+`credential_rotated` cần origin/scope/credential đầy đủ. `revision` là số nguyên tăng đơn điệu theo
+source installation. CRM từ chối contract version/identity sai; revision không tăng trả
+`IGNORED_STALE`. Revoke vẫn thắng trạng thái hiện tại.
+
+| type | Tác dụng ở CRM |
+|---|---|
+| `petclinic_source.upserted` | Tạo/cập nhật installation nguồn, origin API, phạm vi chi nhánh và Bearer credential dùng một lần. Snapshot cũ hơn `sourceUpdatedAt` bị bỏ qua. |
+| `petclinic_source.credential_rotated` | Thay credential đã mã hóa. Như mọi sự kiện trừ `revoked`, `revision` phải **lớn hơn** revision đang lưu, nếu không CRM trả `IGNORED_STALE` và giữ credential cũ; vì vậy Platform tăng revision cho **mỗi** lần phát credential mới, kể cả lần thử lại sau mất ACK (đồng bộ 2026-09-25). |
+| `petclinic_source.status_changed` | Đồng bộ ACTIVE/SUSPENDED/REVOKED; sự kiện cũ hơn trạng thái nguồn hiện tại bị bỏ qua. |
+| `petclinic_source.revoked` | Xóa credential, đóng nguồn và hủy job đang QUEUED/PROCESSING của installation đó. Revoke luôn thắng. |
+
+Payload nguồn tối thiểu: `source: { sourceProduct, apiBaseUrl, apiTenantId, allowedBranchIds,
+credential:{ token, keyId }, credentialExpiresAt? }`. `apiTenantId` phải bằng tenant đã ký; URL production
+phải là HTTPS origin thuần; token chỉ được mã hóa vào `PetclinicConnection`, không xuất hiện trong
+`PlatformEvent`, audit hay phản hồi. CRM chỉ trả 2xx sau khi transaction chứa credential mã hóa đã
+commit. Mỗi event lưu SHA-256 của raw payload: cùng `eventId` + đúng payload trả kết quả cũ với
+`duplicate:true`; cùng `eventId` + payload khác trả 409 `EVENT_ID_REUSED`, kể cả khi gửi đồng thời.
+Nếu Platform mất response chứa token thì không yêu cầu PETCLINIC phát lại token cũ: phải phát
+`credential_rotated` với eventId/revision/token mới. Phản hồi 2xx có `result` bắt đầu bằng `IGNORED_`
+(`IGNORED_STALE`, `IGNORED_UNKNOWN_TENANT`, …) nghĩa là CRM **không** lưu credential: Platform phải coi là
+chưa giao và xoay khóa lại. Contract hợp nhất ba phía: `D:\petclinic-essential-crm-bridge\docs\integrations\crm-appointment-source-contract.md`. Rotation thay credential trong cùng transaction;
+CRM không còn đường sử dụng credential cũ sau commit và PETCLINIC phải thu hồi credential cũ ngay.
+
+Sync dùng `Authorization: Bearer …`, phân trang cho tới trang cuối
+và không gửi `x-tenant-id`. Trước mỗi lần gửi, CRM gọi `POST {appointmentsPath}/:id/revalidate` với
+`expectedAppointmentTime` + `expectedRevision`; mọi lỗi hoặc kết quả khác `eligible=true` và
+`reasonCode=ELIGIBLE` đều không được phép gửi.
+
 ## 3b. Vòng đời chấm dứt / xóa tenant (dùng chung quy trình Platform, 2026-09-24)
 
 CRM **không** có quy trình xóa riêng. Platform giữ `TenantDeletionRequest` (30 ngày) và gọi CRM qua

@@ -28,17 +28,25 @@ only allow-listed template variables, then calls the private sender endpoint wit
 `timestamp.nonce.canonicalJsonBody`. The sender accepts only its fixed organization and Zalo account,
 and resolves only an existing friend or existing conversation by normalized phone number.
 
-## Operating PETCLINIC connector
+## PETCLINIC connector
 
-Platform control configures `POST /installations/:id/petclinic`. Credentials are encrypted at rest;
-responses and audit metadata never contain the token or phone numbers. The connection is valid only
-for an installation whose source is `PETCLINIC_OPERATING`.
+The connector supports both `PETCLINIC_OPERATING` and `PETCLINIC_ESSENTIAL`. For Essential, Platform
+provisions the source automatically through the signed events in `docs/crm-platform-contract.md`;
+the one-time Bearer credential is encrypted at rest and is never returned or written to audit/event
+metadata. The legacy operator route `POST /installations/:id/petclinic` remains available for an
+explicitly managed connection.
 
 `POST /installations/:id/petclinic/sync` is dry-run unless the signed request explicitly contains
-`{"commit":true}`. Eligible appointments must be scheduled/confirmed, belong to an approved branch,
-carry explicit messaging consent and match the hashed pilot allowlist. A committed sync creates an
-idempotent reminder job. The worker reads the appointment source again before sending, so cancellation,
-rescheduling, loss of consent or removal from the pilot allowlist prevents delivery.
+`{"commit":true}`. Eligible appointments must be scheduled/confirmed, belong to an approved branch
+and carry explicit messaging consent. A pilot allowlist is enforced only when one is configured. A
+committed sync stores the appointment time and revision snapshot in an idempotent reminder job.
+Immediately before delivery, the worker calls PETCLINIC's dedicated revalidation endpoint with
+`expectedAppointmentTime` and `expectedRevision`; only `eligible=true` with `reasonCode=ELIGIBLE`
+may send. Network errors, malformed responses, missing snapshots, cancellation, rescheduling or
+consent changes fail closed. CRM authenticates with Bearer only and never sends a tenant header.
+The worker also requires the local installation/tenant entitlement gate and source connection to be
+active before revalidation. Suspend/revoke stops sync; revoke clears the credential and cancels only
+the queued/processing jobs belonging to that source installation.
 
 ## Multi Zalo accounts (CRM, tenant-scoped)
 

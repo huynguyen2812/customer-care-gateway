@@ -7,9 +7,10 @@ describe('operating PETCLINIC connector', () => {
       id: 'appt-1', appointmentTime: '2026-09-25T02:00:00.000Z', status: 'SCHEDULED',
       branch: { id: 'branch-1' }, owner: { fullName: 'Anh Huy', phoneNumber: '0900000000' },
       pet: { name: 'Miu' }, service: { name: 'Khám' }, messagingConsent: true,
+      revision: 'revision-1',
       privateMedicalNote: 'must-not-be-copied',
     });
-    expect(appointment).toEqual({ id: 'appt-1', appointmentAt: new Date('2026-09-25T02:00:00.000Z'), status: 'SCHEDULED', branchId: 'branch-1', ownerName: 'Anh Huy', phone: '0900000000', petName: 'Miu', serviceName: 'Khám', consentGranted: true });
+    expect(appointment).toEqual({ id: 'appt-1', appointmentAt: new Date('2026-09-25T02:00:00.000Z'), status: 'SCHEDULED', branchId: 'branch-1', ownerName: 'Anh Huy', phone: '0900000000', petName: 'Miu', serviceName: 'Khám', consentGranted: true, revision: 'revision-1' });
     expect(isReminderEligible(appointment!)).toBe(true);
     expect(appointment).not.toHaveProperty('privateMedicalNote');
   });
