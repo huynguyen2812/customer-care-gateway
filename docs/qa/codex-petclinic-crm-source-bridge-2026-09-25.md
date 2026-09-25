@@ -82,4 +82,10 @@ Phần nhận nguồn và fail-closed trong CRM đã sẵn sàng để review/co
 - Unit PASS 27/27; integration trên PostgreSQL QA cô lập PASS 117/117.
 - Migration deploy lần 1 PASS đủ 12 migration; lần 2 PASS không còn migration chờ; status up to date.
 - Không bật worker gửi, không gửi Zalo thật và không deploy.
+
+## Xác minh E2E sau hợp nhất B2B (2026-09-25)
+
+- Platform `cf72cf6` + PETCLINIC `249f838` + CRM `14287cd` chạy thật với ba database QA mới: **53/53 PASS, 0 FAIL**.
+- Xác nhận `source.changed` B2B và `petclinic_source.*` cùng tồn tại trong mã CRM đã build; luồng PETCLINIC hoạt động, không có DeliveryAttempt và log không lộ secret/token/số điện thoại QA.
+- Đây là kết quả local sau hợp nhất; smoke production được ghi riêng sau triển khai.
 - Không sửa mã CRM; chỉ chỉnh `docs/crm-platform-contract.md` về quy tắc revision cho rotation và ý nghĩa `IGNORED_*`.
