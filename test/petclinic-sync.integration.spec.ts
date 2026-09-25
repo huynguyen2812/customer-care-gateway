@@ -16,7 +16,8 @@ describe('operating PETCLINIC sync (real PostgreSQL + loopback source API)', () 
   const sync = new PetclinicSyncService(prisma as any, crypto, client, jobs, tenantAccess);
   let server: Server; let baseUrl = ''; let installationId = '';
   let status = 'SCHEDULED';
-  let appointmentTime = new Date(Date.now() + 2 * 86400_000).toISOString();
+  const vietnamOffset = (instant: Date) => new Date(instant.getTime() + 7 * 3600_000).toISOString().replace('Z', '+07:00');
+  let appointmentTime = vietnamOffset(new Date(Date.now() + 2 * 86400_000));
 
   beforeAll(async () => {
     process.env.PHONE_HASH_PEPPER = randomBytes(32).toString('hex');
@@ -28,7 +29,9 @@ describe('operating PETCLINIC sync (real PostgreSQL + loopback source API)', () 
       if (req.method === 'POST' && req.url?.endsWith('/appointments/appt-pilot-1/revalidate')) {
         let raw = ''; req.on('data', (chunk) => { raw += chunk; }); req.on('end', () => {
           const body = JSON.parse(raw);
-          const eligible = status === 'SCHEDULED' && body.expectedAppointmentTime === appointmentTime && body.expectedRevision === 'revision-current';
+          const eligible = status === 'SCHEDULED'
+            && new Date(body.expectedAppointmentTime).getTime() === new Date(appointmentTime).getTime()
+            && body.expectedRevision === 'revision-current';
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ data: { eligible, reasonCode: eligible ? 'ELIGIBLE' : 'APPOINTMENT_CHANGED', appointmentId: 'appt-pilot-1' } }));
         });
@@ -71,9 +74,12 @@ describe('operating PETCLINIC sync (real PostgreSQL + loopback source API)', () 
 
     const committed = await sync.sync(installationId, { commit: true }, 'integration-test');
     expect(committed).toMatchObject({ dryRun: false, created: 1, cancelled: 0 });
+    const firstJob = await prisma.careJob.findFirstOrThrow({ where: { installationId, status: 'QUEUED' } });
+    expect(firstJob.sourceAppointmentAt?.toISOString()).toBe(new Date(appointmentTime).toISOString());
+    expect(firstJob.scheduledAt.toISOString()).toBe(new Date(new Date(appointmentTime).getTime() - 1440 * 60_000).toISOString());
     expect((await sync.sync(installationId, { commit: true }, 'integration-test')).created).toBe(0);
 
-    appointmentTime = new Date(Date.now() + 3 * 86400_000).toISOString();
+    appointmentTime = vietnamOffset(new Date(Date.now() + 3 * 86400_000));
     const rescheduled = await sync.sync(installationId, { commit: true }, 'integration-test');
     expect(rescheduled).toMatchObject({ created: 1, cancelled: 1 });
     expect(await prisma.careJob.count({ where: { installationId, status: 'QUEUED' } })).toBe(1);

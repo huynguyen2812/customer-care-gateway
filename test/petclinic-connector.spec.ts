@@ -1,5 +1,5 @@
 import { safeApiUrl } from '../src/petclinic/petclinic-client.service';
-import { isReminderEligible, normalizeAppointment } from '../src/petclinic/petclinic.types';
+import { isReminderEligible, normalizeAppointment, parseSourceInstant } from '../src/petclinic/petclinic.types';
 
 describe('operating PETCLINIC connector', () => {
   it('normalizes the observed appointment envelope fields without retaining the source object', () => {
@@ -18,6 +18,14 @@ describe('operating PETCLINIC connector', () => {
   it('rejects cancelled and incomplete appointments', () => {
     expect(isReminderEligible(normalizeAppointment({ id: '1', appointmentTime: '2026-09-25T02:00:00Z', status: 'CANCELLED' })!)).toBe(false);
     expect(normalizeAppointment({ id: '1', status: 'SCHEDULED' })).toBeNull();
+  });
+
+  it('requires an explicit source offset and preserves the Vietnam appointment instant', () => {
+    expect(parseSourceInstant('2026-09-25T18:00:00')).toBeNull();
+    expect(parseSourceInstant('2026-09-25 18:00:00')).toBeNull();
+    expect(parseSourceInstant('2026-09-25T18:00:00+07:00')?.toISOString()).toBe('2026-09-25T11:00:00.000Z');
+    expect(normalizeAppointment({ id: 'offsetless', appointmentTime: '2026-09-25T18:00:00', status: 'SCHEDULED' })).toBeNull();
+    expect(normalizeAppointment({ id: 'offset', appointmentTime: '2026-09-25T18:00:00+07:00', status: 'SCHEDULED' })?.appointmentAt.toISOString()).toBe('2026-09-25T11:00:00.000Z');
   });
 
   it('accepts PETCLINIC DEFAULT_ALLOWED only for Zalo appointment reminders and lets explicit revoke win', () => {

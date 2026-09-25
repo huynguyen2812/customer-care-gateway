@@ -9,3 +9,9 @@ CRM nhận sự kiện `petclinic_source.*` có chữ ký, lưu credential mã h
 phạm vi chi nhánh và revalidate fail-closed ngay trước khi gửi. Migration PETCLINIC được
 đánh số `0012_petclinic_source_provisioning` sau migration cầu B2B `0011_b2b_source_bridge`.
 Xem `docs/qa/codex-petclinic-crm-source-bridge-2026-09-25.md`.
+
+2026-09-25 — Vá múi giờ PETCLINIC → CRM. Timestamp lịch hẹn bắt buộc có `Z` hoặc offset
+`±HH:MM`; chuỗi local thiếu offset bị fail-closed. Khoảng đồng bộ, bộ lọc ngày và biểu đồ dùng
+múi giờ tenant; giao diện mặc định hiển thị `Asia/Ho_Chi_Minh`. Regression xác nhận
+`2026-09-25T18:00:00+07:00` được lưu thành `2026-09-25T11:00:00Z` và lịch nhắc trước 24 giờ
+giữ đúng 18:00 giờ Việt Nam ngày hôm trước.

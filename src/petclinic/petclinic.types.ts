@@ -12,11 +12,19 @@ export type PetclinicAppointment = {
 };
 
 const text = (value: unknown): string => value == null ? '' : String(value).trim();
+const ISO_INSTANT_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/i;
+
+export function parseSourceInstant(value: unknown): Date | null {
+  const raw = text(value);
+  if (!ISO_INSTANT_WITH_OFFSET.test(raw)) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 export function normalizeAppointment(value: Record<string, any>): PetclinicAppointment | null {
   const id = text(value.id || value.appointmentId || value.code);
   const rawAt = value.appointmentTime || value.appointmentDateTime || value.scheduledAt || value.startTime;
-  const appointmentAt = new Date(rawAt);
+  const appointmentAt = parseSourceInstant(rawAt);
   const owner = value.owner || value.customer || value.petOwner || {};
   const pet = value.pet || {};
   const branch = value.branch || {};
@@ -29,7 +37,7 @@ export function normalizeAppointment(value: Record<string, any>): PetclinicAppoi
     && (!consentChannel || consentChannel === 'ZALO');
   const explicitlyBlocked = ['REVOKED', 'WITHDRAWN', 'OPTED_OUT'].includes(consentStatus);
   const explicitlyAllowed = ['GRANTED', 'DEFAULT_ALLOWED'].includes(consentStatus);
-  if (!id || Number.isNaN(appointmentAt.getTime())) return null;
+  if (!id || !appointmentAt) return null;
   return {
     id,
     appointmentAt,
