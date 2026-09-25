@@ -21,6 +21,14 @@ export function normalizeAppointment(value: Record<string, any>): PetclinicAppoi
   const pet = value.pet || {};
   const branch = value.branch || {};
   const service = value.service || value.appointmentService || {};
+  const consent = value.consent || {};
+  const consentStatus = text(consent.status).toUpperCase();
+  const consentPurpose = text(consent.purpose).toUpperCase();
+  const consentChannel = text(consent.channel).toUpperCase();
+  const isAppointmentZalo = (!consentPurpose || consentPurpose === 'APPOINTMENT_REMINDER')
+    && (!consentChannel || consentChannel === 'ZALO');
+  const explicitlyBlocked = ['REVOKED', 'WITHDRAWN', 'OPTED_OUT'].includes(consentStatus);
+  const explicitlyAllowed = ['GRANTED', 'DEFAULT_ALLOWED'].includes(consentStatus);
   if (!id || Number.isNaN(appointmentAt.getTime())) return null;
   return {
     id,
@@ -31,7 +39,10 @@ export function normalizeAppointment(value: Record<string, any>): PetclinicAppoi
     phone: text(value.phone || value.ownerPhone || value.customerPhone || owner.phone || owner.phoneNumber),
     petName: text(value.petName || pet.name),
     serviceName: text(value.serviceName || service.name),
-    consentGranted: value.messagingConsent === true || value.zaloConsent === true || value.consentToContact === true,
+    // PETCLINIC defaults only appointment reminders over Zalo to allowed. An explicit
+    // revocation always wins, including over stale legacy boolean fields.
+    consentGranted: isAppointmentZalo && !explicitlyBlocked && (consent.eligible === true || explicitlyAllowed
+      || value.messagingConsent === true || value.zaloConsent === true || value.consentToContact === true),
     revision: text(value.revision),
   };
 }

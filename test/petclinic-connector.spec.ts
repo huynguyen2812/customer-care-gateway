@@ -20,6 +20,14 @@ describe('operating PETCLINIC connector', () => {
     expect(normalizeAppointment({ id: '1', status: 'SCHEDULED' })).toBeNull();
   });
 
+  it('accepts PETCLINIC DEFAULT_ALLOWED only for Zalo appointment reminders and lets explicit revoke win', () => {
+    const base = { id: 'consent-1', appointmentTime: '2026-09-25T10:00:00Z', status: 'SCHEDULED' };
+    expect(normalizeAppointment({ ...base, consent: { purpose: 'APPOINTMENT_REMINDER', channel: 'ZALO', status: 'DEFAULT_ALLOWED', eligible: true } })?.consentGranted).toBe(true);
+    expect(normalizeAppointment({ ...base, messagingConsent: true, consent: { purpose: 'APPOINTMENT_REMINDER', channel: 'ZALO', status: 'REVOKED', eligible: false } })?.consentGranted).toBe(false);
+    expect(normalizeAppointment({ ...base, consent: { purpose: 'MARKETING', channel: 'ZALO', status: 'DEFAULT_ALLOWED', eligible: true } })?.consentGranted).toBe(false);
+    expect(normalizeAppointment({ ...base, consent: { purpose: 'APPOINTMENT_REMINDER', channel: 'SMS', status: 'DEFAULT_ALLOWED', eligible: true } })?.consentGranted).toBe(false);
+  });
+
   it('locks requests to the configured HTTPS origin', () => {
     expect(safeApiUrl('https://api.mpets.vn', '/clinic-service/api/v1/clinic/appointments', { from: '2026-09-23' }).origin).toBe('https://api.mpets.vn');
     expect(() => safeApiUrl('https://api.mpets.vn', 'https://attacker.example/steal', {})).toThrow('PETCLINIC_API_ORIGIN_MISMATCH');

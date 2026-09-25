@@ -44,6 +44,10 @@ Immediately before delivery, the worker calls PETCLINIC's dedicated revalidation
 `expectedAppointmentTime` and `expectedRevision`; only `eligible=true` with `reasonCode=ELIGIBLE`
 may send. Network errors, malformed responses, missing snapshots, cancellation, rescheduling or
 consent changes fail closed. CRM authenticates with Bearer only and never sends a tenant header.
+For PETCLINIC appointment reminders over Zalo, source consent status `DEFAULT_ALLOWED` is mapped to
+the internal allowed state exactly like `GRANTED`. An explicit `REVOKED`, `WITHDRAWN` or `OPTED_OUT`
+always wins. This default never applies to SMS, marketing or any purpose other than
+`APPOINTMENT_REMINDER`.
 The worker also requires the local installation/tenant entitlement gate and source connection to be
 active before revalidation. Suspend/revoke stops sync; revoke clears the credential and cancels only
 the queued/processing jobs belonging to that source installation.
