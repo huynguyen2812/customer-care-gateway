@@ -1,0 +1,19 @@
+{
+  "name": "vetclinic-crm-downloads",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-26",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "vetclinic.vn/tai-ve/crm-pc/v3/*",
+      "zone_name": "vetclinic.vn"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RELEASES",
+      "bucket_name": "vetclinic-crm-releases"
+    }
+  ],
+  "observability": { "enabled": true }
+}
