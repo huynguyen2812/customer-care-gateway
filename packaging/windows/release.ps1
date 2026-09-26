@@ -28,13 +28,31 @@ param(
   [switch]$SkipInstaller,
   # QA only: build from a working tree with uncommitted changes. The manifest then says dirty=true and the version
   # must carry a "-dev" or "-qa" suffix, so such a build can never pass as a traceable production release.
-  [switch]$AllowDirty
+  [switch]$AllowDirty,
+  # Official release: the Platform device API URL Platform delivered; must equal the URL baked into VetclinicCrm.psm1.
+  [string]$ExpectPlatformUrl = ''
 )
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dirty = @($CrmRepo, $SenderRepo) | Where-Object { [bool](git -c "safe.directory=*" -C $_ status --porcelain) }
 if ($dirty -and -not $AllowDirty) { throw "Không phát hành từ mã nguồn chưa commit: $($dirty -join ', '). Commit trước, hoặc dùng -AllowDirty cho bản thử." }
 if ($dirty -and $Version -notmatch '-(dev|qa)(\.|$)') { throw 'Bản build từ mã nguồn chưa commit phải có hậu tố -dev hoặc -qa trong -Version.' }
+# -AllowDirty marks a QA build even on a clean tree: it must never produce an official-looking version (that would skip
+# the preflight below). Official versions (x.y.z-pc) always go through the preflight.
+if ($AllowDirty -and $Version -notmatch '-(dev|qa)(\.|$)') { throw '-AllowDirty chỉ dùng cho bản thử: -Version phải có hậu tố -dev hoặc -qa.' }
+$official = -not $AllowDirty
+if ($official -and $AllowLocalUrl) { throw '-AllowLocalUrl chỉ dùng cho bản thử có -AllowDirty và phiên bản -dev/-qa.' }
+# Official release: refuse unless the sources are pushed, the version is x.y.z-pc, the PRODUCTION Platform config public
+# keys (no QA key) and URL are in place and the update signing key matches the shipped public key. A release without
+# Platform keys could never be activated, and activation is mandatory for sending.
+if ($official) {
+  $pfArgs = @('--crm', $CrmRepo, '--sender', $SenderRepo, '--version', $Version, '--signing-key', $SigningKey, '--base-url', $BaseUrl)
+  if (-not $SkipBuild) { $pfArgs += @('--out', $OutDir) }
+  if ($ExpectPlatformUrl) { $pfArgs += @('--expect-platform-url', $ExpectPlatformUrl) }
+  if ($AllowLocalUrl) { $pfArgs += '--allow-local-url' }
+  & node (Join-Path $here 'tools\release-preflight.cjs') @pfArgs
+  if ($LASTEXITCODE -ne 0) { throw 'Kiểm tra trước phát hành thất bại (xem danh sách lỗi ở trên).' }
+}
 if (-not $SkipBuild) {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'build.ps1') -ToolsCache $ToolsCache -CrmRepo $CrmRepo -SenderRepo $SenderRepo -OutDir $OutDir -Version $Version
   if ($LASTEXITCODE -ne 0) { throw 'build.ps1 thất bại' }
@@ -42,6 +60,15 @@ if (-not $SkipBuild) {
 $stageRoot = Join-Path $OutDir 'stage\app'
 $stage = if ($Version) { Get-Item (Join-Path $stageRoot $Version) } else { Get-ChildItem $stageRoot -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1 }
 $ver = (Get-Content -Raw (Join-Path $stage.FullName 'BUILD-INFO.json') | ConvertFrom-Json).version
+if ($official) {
+  # The stage used for an official release must be exactly the clean, pushed commits the preflight checked (also with
+  # -SkipBuild, where an older or dirty stage could otherwise be re-packaged).
+  $biCheck = Get-Content -Raw (Join-Path $stage.FullName 'BUILD-INFO.json') | ConvertFrom-Json
+  $heads = @((git -c "safe.directory=*" -C $CrmRepo rev-parse HEAD), (git -c "safe.directory=*" -C $SenderRepo rev-parse HEAD))
+  if ($ver -ne $Version -or [bool]$biCheck.crmSourceDirty -or [bool]$biCheck.senderSourceDirty -or $biCheck.crmCommit -ne $heads[0] -or $biCheck.senderCommit -ne $heads[1]) {
+    throw 'Stage không khớp bản phát hành chính thức (phiên bản, commit hoặc build từ mã nguồn chưa commit). Build lại, không dùng -SkipBuild với stage cũ.'
+  }
+}
 $rel = Join-Path $OutDir "release\$ver"
 if (-not $SkipInstaller -and (Test-Path $rel)) { Remove-Item -Recurse -Force $rel }
 New-Item -ItemType Directory -Force -Path $rel | Out-Null
@@ -63,7 +90,9 @@ foreach ($old in @($zip) + @(Get-ChildItem $rel -Filter 'manifest.json*' | ForEa
 $sha = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
 $bi = Get-Content -Raw (Join-Path $stage.FullName 'BUILD-INFO.json') | ConvertFrom-Json
 $manifest = [ordered]@{
-  product = 'VETCLINIC CRM PC'; version = $ver; packageUrl = "$($BaseUrl.TrimEnd('/'))/vetclinic-crm-$ver.zip"
+  # Channel v3 (0.3.x+): 0.2.x updaters reject this product value, so this manifest can never auto-update a 0.2.x install.
+  # QA builds get channel "v3-qa", which customer updaters reject (only accepted with VC_UPDATE_ALLOW_QA=1 on a QA machine).
+  product = 'VETCLINIC CRM PC v3'; channel = $(if ($official) { 'v3' } else { 'v3-qa' }); version = $ver; packageUrl = "$($BaseUrl.TrimEnd('/'))/vetclinic-crm-$ver.zip"
   packageSha256 = $sha; packageSize = (Get-Item $zip).Length; publishedAt = (Get-Date).ToUniversalTime().ToString('o'); notes = $Notes
   # Build identity: lets anyone trace an installer/package back to the exact commits it was built from.
   build = [ordered]@{ crmCommit = $bi.crmCommit; senderCommit = $bi.senderCommit; builtAt = $bi.builtAt; dirty = ([bool]$bi.crmSourceDirty -or [bool]$bi.senderSourceDirty) }

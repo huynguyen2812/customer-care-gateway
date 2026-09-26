@@ -7,20 +7,13 @@
 //   sha256 <file>
 //   newer <candidate> <current>                exit 0 if candidate version > current (numeric dot parts, "-pc" suffix ignored)
 //
-// Manifest: {"product":"VETCLINIC CRM PC v3","channel":"v3","version":"0.3.0-pc","packageUrl":"https://…/v3/vetclinic-crm-0.3.0-pc.zip",
+// Manifest: {"product":"VETCLINIC CRM PC","version":"0.2.0-pc","packageUrl":"https://…/vetclinic-crm-0.2.0-pc.zip",
 //            "packageSha256":"…","packageSize":123,"publishedAt":"…","notes":"…"}
-//
-// Channel separation (0.2.x → 0.3.x): the 0.2.x updater accepts ONLY product "VETCLINIC CRM PC" (its verify step fails with
-// MANIFEST_INVALID otherwise) and cannot add DEVICE_KEY_ENC_KEY, so 0.3+ manifests carry product "VETCLINIC CRM PC v3" and
-// live under /tai-ve/crm-pc/v3/. A 0.3+ manifest is rejected by every 0.2.x updater even if published at the old address;
-// this updater, in turn, rejects old-channel manifests. 0.2.x machines move to 0.3 with the .exe installer only.
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
 import { createReadStream, readFileSync, writeFileSync, createWriteStream, existsSync, unlinkSync, renameSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-export const MANIFEST_PRODUCT = 'VETCLINIC CRM PC v3';
-export const MANIFEST_CHANNEL = 'v3';
 const fail = (m, code = 1) => { process.stderr.write(`vcupdate: ${m}\n`); process.exit(code); };
 const parts = (v) => String(v).replace(/-.*$/, '').split('.').map((x) => Number(x) || 0);
 export function isNewer(a, b) { const x = parts(a); const y = parts(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; }
@@ -48,9 +41,7 @@ try {
     const ok = verify(null, body, createPublicKey(readFileSync(a[0])), Buffer.from(readFileSync(a[2], 'utf8').trim(), 'base64'));
     if (!ok) fail('SIGNATURE_INVALID', 2);
     const m = JSON.parse(body.toString('utf8'));
-    // QA builds (channel v3-qa) are accepted only on a QA machine that sets VC_UPDATE_ALLOW_QA=1 (never set by the services).
-    const channelOk = m.channel === MANIFEST_CHANNEL || (m.channel === `${MANIFEST_CHANNEL}-qa` && process.env.VC_UPDATE_ALLOW_QA === '1');
-    if (m.product !== MANIFEST_PRODUCT || !channelOk || !/^\d+\.\d+\.\d+(-[a-z0-9.]+)?$/.test(m.version) || !/^[0-9a-f]{64}$/.test(m.packageSha256) || !(m.packageSize > 0)) fail('MANIFEST_INVALID', 2);
+    if (m.product !== 'VETCLINIC CRM PC' || !/^\d+\.\d+\.\d+(-[a-z0-9.]+)?$/.test(m.version) || !/^[0-9a-f]{64}$/.test(m.packageSha256) || !(m.packageSize > 0)) fail('MANIFEST_INVALID', 2);
     checkUrl(m.packageUrl);
     process.stdout.write(JSON.stringify(m));
   } else if (cmd === 'fetch') {

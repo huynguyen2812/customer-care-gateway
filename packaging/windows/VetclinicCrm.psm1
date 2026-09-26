@@ -108,8 +108,11 @@ function Add-VcMissingSecrets([hashtable]$s) {
   return $changed
 }
 
-# Official update location (chốt 2026-09-25). A file named manifest.json + manifest.json.sig must live here.
-$script:DefaultUpdateUrl = 'https://vetclinic.vn/tai-ve/crm-pc/manifest.json'
+# Update channel of this line of versions (0.3.x+, Platform licensing). A manifest.json + manifest.json.sig live here.
+# The LEGACY address below belongs to 0.2.x installs: their updater cannot add DEVICE_KEY_ENC_KEY, so no 0.3+ manifest may
+# ever be published there, and 0.3+ installs never read it (it is treated as "not set" ⇒ this channel).
+$script:DefaultUpdateUrl = 'https://vetclinic.vn/tai-ve/crm-pc/v3/manifest.json'
+$script:LegacyUpdateUrls = @('https://vetclinic.vn/tai-ve/crm-pc/manifest.json')
 
 <# Non-secret settings (C:\ProgramData\VETCLINIC CRM\settings.json), editable by Administrators only. #>
 function Get-VcSettings {
@@ -118,8 +121,12 @@ function Get-VcSettings {
   if (Test-Path $p) {
     try {
       $j = Get-Content -Raw $p | ConvertFrom-Json
-      # An empty updateManifestUrl (written by 0.2.x installs) means "use the official default", not "disabled".
-      foreach ($prop in $j.PSObject.Properties) { if ($prop.Name -eq 'updateManifestUrl' -and -not $prop.Value) { continue }; $defaults[$prop.Name] = $prop.Value }
+      # An empty updateManifestUrl (written by 0.2.x installs) or the legacy 0.2.x channel means "use this version's
+      # channel", not "disabled" and not "stay on the old channel".
+      foreach ($prop in $j.PSObject.Properties) {
+        if ($prop.Name -eq 'updateManifestUrl' -and (-not $prop.Value -or ($script:LegacyUpdateUrls -contains ([string]$prop.Value).Trim()))) { continue }
+        $defaults[$prop.Name] = $prop.Value
+      }
     } catch { }
   }
   return [pscustomobject]$defaults
