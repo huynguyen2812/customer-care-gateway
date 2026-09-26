@@ -1,0 +1,15 @@
+﻿VETCLINIC CRM — bản chạy trên máy tính (Windows)
+
+Bộ cài sẽ:
+ • Cài VETCLINIC CRM và cơ sở dữ liệu riêng vào máy này; tự chạy khi mở máy. Chỉ dùng trong máy (127.0.0.1),
+   không mở cổng ra Internet, không cần máy chủ VETCLINIC.
+ • Dữ liệu nằm tại C:\ProgramData\VETCLINIC CRM. Sao lưu tự động mỗi ngày (mã hóa).
+ • Tạo KHÓA KHÔI PHỤC chỉ hiện MỘT lần ở cuối quá trình cài — hãy in hoặc chép lại. VETCLINIC không giữ bản sao.
+ • Tự kiểm tra bản cập nhật có chữ ký của VETCLINIC; luôn sao lưu trước khi cập nhật.
+
+Thành phần gửi tin Zalo là bản sửa đổi của phần mềm mã nguồn mở ZaloCRM (tác giả Nguyễn Tiến Lộc), phát hành theo
+GNU Affero General Public License v3.0. Mã nguồn tương ứng đi kèm (sender-source.zip) và tại
+https://github.com/huynguyen2812/vetclinic-zalo-sender. Xem "Giấy phép" trong VETCLINIC CRM.
+
+Bộ cài chưa có chữ ký số của nhà phát hành: Windows có thể hiện cảnh báo "Windows protected your PC".
+Chỉ tải bộ cài từ trang chính thức của VETCLINIC.

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { CareJob, DeliveryAttempt, Installation, Prisma, ZaloAccount } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../common/prisma.service';
@@ -16,6 +16,8 @@ import { AccountSelectorService, TIER_LABEL } from '../delivery/account-selector
 import { QuotaScope, QuotaService } from '../delivery/quota.service';
 import { redactText } from '../crm/crm-redact';
 import { B2bSourceService } from '../b2b/b2b-source.service';
+import { SourceConnectorService } from '../standalone/source-connector.service';
+import { DEPLOYMENT_MODE, DeploymentMode, maxLatenessMs } from '../standalone/deployment-mode';
 
 const STALE_LOCK_MS = 5 * 60_000;
 const MAX_SAME_ATTEMPT_SENDS = 3;
@@ -38,7 +40,7 @@ class QuotaExhausted extends Error { constructor(readonly scope: string) { super
  */
 @Injectable()
 export class CareWorkerService {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly router: ChannelRouterService, private readonly verifier: SourceVerifierService, private readonly webhooks: WebhookOutboxService, private readonly templates: TemplateService, private readonly petclinic: PetclinicSyncService, private readonly tenantAccess: TenantAccessService, private readonly selector: AccountSelectorService, private readonly quota: QuotaService, private readonly b2b: B2bSourceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly router: ChannelRouterService, private readonly verifier: SourceVerifierService, private readonly webhooks: WebhookOutboxService, private readonly templates: TemplateService, private readonly petclinic: PetclinicSyncService, private readonly tenantAccess: TenantAccessService, private readonly selector: AccountSelectorService, private readonly quota: QuotaService, private readonly b2b: B2bSourceService, private readonly sourceConnector: SourceConnectorService, @Optional() @Inject(DEPLOYMENT_MODE) private readonly mode: DeploymentMode = 'platform') {}
 
   /** Jobs left PROCESSING by a crashed worker go back to QUEUED; their open attempt decides what happens next. */
   async recoverStale(now = new Date()): Promise<number> {
@@ -56,7 +58,8 @@ export class CareWorkerService {
     const job = rows[0]; if (!job) return false;
     const installation = await this.prisma.installation.findUniqueOrThrow({ where: { id: job.installationId } });
     if (installation.status !== 'ACTIVE' || installation.paused) return this.finish(job.id, 'CANCELLED', 'INSTALLATION_INACTIVE');
-    const decision = await this.tenantAccess.sendingDecision(installation.tenantId);
+    // PC edition: licence re-checked right before sending, against the Platform entry of the job's own source.
+    const decision = await this.tenantAccess.sendingDecision(installation.tenantId, await this.tenantAccess.jobScope(job));
     if (decision.action === 'CANCEL') return this.finish(job.id, 'CANCELLED', decision.code);
     if (decision.action === 'HOLD') return this.requeue(job.id, decision.code, 15);
     const kill = await this.prisma.systemSetting.findUnique({ where: { key: 'kill_switch' } });
@@ -74,6 +77,14 @@ export class CareWorkerService {
       return this.resolveUncertain(job, installation, open);
     }
 
+    // Never catch up on stale messages (PC was off, network down, long pause): past the lateness limit the
+    // job is cancelled instead of sent. Checked only when no attempt can have reached Zalo (handled above).
+    const lateness = maxLatenessMs(this.mode);
+    if (lateness !== null && Date.now() - job.scheduledAt.getTime() > lateness) {
+      await this.prisma.auditLog.create({ data: { installationId: installation.id, tenantId: installation.tenantId, actorType: 'SYSTEM', actorId: 'worker', action: 'CARE_JOB_EXPIRED', targetType: 'CareJob', targetId: job.id, result: 'CANCELLED', reason: 'EXPIRED_WHILE_OFFLINE', metadata: { scheduledAt: job.scheduledAt.toISOString(), maxLatenessHours: lateness / 3600_000 } } });
+      return this.finish(job.id, 'CANCELLED', 'EXPIRED_WHILE_OFFLINE');
+    }
+
     try {
       if (!(await this.sourceStillValid(job, installation))) return this.finish(job.id, 'CANCELLED', 'SOURCE_NO_LONGER_VALID');
     } catch {
@@ -87,6 +98,7 @@ export class CareWorkerService {
 
   private async sourceStillValid(job: CareJob, installation: Installation): Promise<boolean> {
     if (job.sourceProduct === 'B2B_SALE') return this.b2b.revalidate(installation.tenantId, job.externalReferenceId);
+    if (job.sourceProduct === 'EXTERNAL_CONNECTOR') return this.sourceConnector.verify(job.installationId, job.externalReferenceId, job.sourceAppointmentAt, job.sourceRevision);
     if (job.sourceProduct === 'PETCLINIC_OPERATING' || job.sourceProduct === 'PETCLINIC_ESSENTIAL') {
       // Backward compatibility: older installations may still use the generic signed verify callback.
       // Once a dedicated PETCLINIC connection exists, the stronger revision/time revalidation is mandatory.

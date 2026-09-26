@@ -11,6 +11,7 @@ enum SourceProduct {
   B2B_SALE
   PETCLINIC_OPERATING
   PETCLINIC_ESSENTIAL
+  EXTERNAL_CONNECTOR
 }
 
 enum InstallationStatus {
@@ -103,6 +104,7 @@ model Installation {
   auditLogs AuditLog[]
   templates MessageTemplate[]
   petclinicConnection PetclinicConnection?
+  sourceConnection SourceConnection?
   @@unique([tenantId, sourceProduct])
   @@unique([id, tenantId])
   @@index([status, expiresAt])
@@ -148,6 +150,9 @@ model ApiCredential {
   clientId String @unique @db.VarChar(80)
   secretHash String @db.VarChar(64)
   secretLast4 String @db.VarChar(8)
+  // Standalone PC: the HMAC signing key (SHA-256 of the secret) encrypted at rest; secretHash then only
+  // holds SHA-256(signingKey) as a fingerprint and is never used as a key.
+  signingKeyEnc String?
   status CredentialStatus @default(ACTIVE)
   expiresAt DateTime?
   revokedAt DateTime?
@@ -191,6 +196,8 @@ model CareJob {
   failureCode String? @db.VarChar(80)
   failureReason String? @db.VarChar(500)
   branchId String? @db.VarChar(80)
+  // PC edition: Platform source entry (PETCLINIC | B2B_SALE | EXTERNAL) this job was licensed under.
+  licenseSource String? @db.VarChar(20)
   selectedZaloAccountId String? @db.Uuid
   selectedChannel ChannelKind?
   sentAt DateTime?
@@ -421,6 +428,7 @@ model CrmTenant {
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
   sessions                CrmSession[]
+  localUsers              LocalUser[]
 }
 
 // Deletion ledger. No FK to CrmTenant on purpose: it must survive the purge so a Platform retry with
@@ -502,4 +510,120 @@ model SenderHealthEvent {
   account       ZaloAccount @relation(fields: [zaloAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([zaloAccountId, occurredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Standalone PC Edition (DEPLOYMENT_MODE=standalone). No Platform: one business per PC, local users,
+// self-issued API credentials. These tables stay empty in the VPS/Platform deployment.
+// ---------------------------------------------------------------------------
+
+// Singleton (id is always 1, enforced by a CHECK constraint): the PC has exactly one business.
+model StandaloneInstance {
+  id        Int      @id @default(1)
+  tenantId  String   @unique @db.Uuid
+  createdAt DateTime @default(now())
+}
+
+model LocalUser {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @db.Uuid
+  username          String    @unique @db.VarChar(80)
+  displayName       String?   @db.VarChar(200)
+  passwordHash      String    @db.VarChar(300)
+  role              String    @db.VarChar(20)
+  active            Boolean   @default(true)
+  failedLogins      Int       @default(0)
+  lockedUntil       DateTime?
+  passwordChangedAt DateTime  @default(now())
+  lastLoginAt       DateTime?
+  createdBy         String?   @db.VarChar(160)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  tenant            CrmTenant @relation(fields: [tenantId], references: [platformTenantId], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// Generic source connector ("VETCLINIC Source Connector v1"). CRM signs every request with the
+// installation's self-issued credential (HMAC); no bearer token is stored.
+model SourceConnection {
+  id                  String       @id @default(uuid()) @db.Uuid
+  installationId      String       @unique @db.Uuid
+  apiBaseUrl          String       @db.VarChar(300)
+  appointmentsEnabled Boolean      @default(true)
+  receivablesEnabled  Boolean      @default(false)
+  allowedBranchIds    String[]
+  reminderLeadMinutes Int          @default(1440)
+  active              Boolean      @default(false)
+  lastSyncAt          DateTime?
+  lastSyncStatus      String?      @db.VarChar(40)
+  lastError           String?      @db.VarChar(500)
+  // Which Platform source entry licenses this connector: PETCLINIC | B2B_SALE | EXTERNAL (NULL = not chosen yet).
+  sourceKind          String?      @db.VarChar(20)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  installation        Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Platform Device Agent (standalone PC edition). Platform Admin is only the control plane (plan, one-time activation,
+// device, branch scope, limits). Never holds: source API credentials, Zalo sessions, customer data, recovery key.
+// The activation code itself is never stored.
+// ---------------------------------------------------------------------------
+
+// One row today (id pinned to 1 by a CHECK constraint); deviceId is unique so several devices can be supported later.
+model PlatformDeviceRegistration {
+  id                     Int       @id @default(1)
+  deviceId               String    @unique @db.Uuid
+  // Ed25519 public key (SPKI PEM). The private key is AES-GCM encrypted with DEVICE_KEY_ENC_KEY, a machine-only secret
+  // from the DPAPI store that is deliberately NOT in the backup key bundle: a restore on another PC must re-pair.
+  devicePublicKey        String
+  devicePrivateKeyEnc    String
+  // PENDING (redeem sent, no answer yet) | ACTIVE | REVOKED | UNPAIRED
+  status                 String    @db.VarChar(20)
+  // Redeem idempotency key for the code being activated (kept across failed retries of the same code).
+  pendingRequestId       String?   @db.Uuid
+  // HMAC(machine key, code) of that code, only to recognise a retry; cleared once ACTIVE. The code is never stored.
+  pendingCodeHash        String?   @db.VarChar(64)
+  // Short lease: at most one activation runs at a time.
+  activationLockedUntil  DateTime?
+  // True forever once the PC was paired: it never falls back to "not activated" (no bypass either).
+  everPaired             Boolean   @default(false)
+  // Pending attempt: last failure code, and whether it may already be bound on Platform (then only the same code may
+  // be retried, and an expired code needs the confirmed recovery). Never reset automatically.
+  activationError        String?   @db.VarChar(80)
+  activationMaybeBound   Boolean   @default(false)
+  platformInstallationId String?   @db.VarChar(100)
+  platformTenantId       String?   @db.VarChar(100)
+  businessName           String?   @db.VarChar(200)
+  pairedAt               DateTime?
+  lastValidatedAt        DateTime?
+  lastConfigRevision     Int       @default(0)
+  entitlementValidUntil  DateTime?
+  offlineGraceUntil      DateTime?
+  lastSyncAt             DateTime?
+  lastSyncError          String?   @db.VarChar(80)
+  revokedAt              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+}
+
+// Signed desired configuration received from Platform. Only verified documents are stored; revision is strictly increasing.
+model PlatformDesiredConfiguration {
+  id          String    @id @default(uuid()) @db.Uuid
+  deviceId    String    @db.Uuid
+  revision    Int
+  payload     Json
+  payloadHash String    @db.VarChar(64)
+  signature   String    @db.VarChar(200)
+  keyId       String    @db.VarChar(80)
+  expiresAt   DateTime
+  receivedAt  DateTime  @default(now())
+  appliedAt   DateTime?
+  // APPLIED | FAILED
+  applyStatus String    @db.VarChar(20)
+  applyError  String?   @db.VarChar(80)
+
+  @@unique([deviceId, revision])
+  @@index([deviceId, appliedAt])
 }

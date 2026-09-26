@@ -19,7 +19,11 @@ export class CareJobsService {
     this.requireScope(ctx, 'care:job:create');
     if (input.tenantId && input.tenantId !== ctx.tenantId) throw new ForbiddenException('Credential scope mismatch');
     if (input.sourceProduct !== ctx.sourceProduct) throw new ForbiddenException('Credential scope mismatch');
-    const access = await this.tenantAccess.canCreateJobs(ctx.tenantId);
+    // Source/branch/event scope is only enforced by the PC edition's Platform licence gate (no-op for the VPS edition):
+    // the branch is checked against the Platform entry of THIS job's source, which is recorded on the job.
+    const scopedBranch = typeof input.branchId === 'string' && /^[A-Za-z0-9._:-]{1,80}$/.test(input.branchId) ? input.branchId : null;
+    const licenseSource = await this.tenantAccess.licenseSourceFor(ctx.installationId, ctx.sourceProduct);
+    const access = await this.tenantAccess.canCreateJobs(ctx.tenantId, { ...(licenseSource !== undefined ? { sourceProduct: licenseSource } : {}), branchId: scopedBranch, eventType: typeof input.eventType === 'string' ? input.eventType : null });
     if (!access.ok) throw new ForbiddenException(access.code);
     const required = ['externalReferenceId', 'eventType', 'templateCode', 'scheduledAt', 'idempotencyKey', 'consentStatus'];
     for (const key of required) if (!input[key]) throw new BadRequestException(`${key} is required`);
@@ -52,7 +56,7 @@ export class CareJobsService {
         installationId: ctx.installationId, idempotencyKey: String(input.idempotencyKey), requestHash,
         // Optional branch reference used only for account routing (not part of the idempotency hash).
         branchId: typeof input.branchId === 'string' && /^[A-Za-z0-9._:-]{1,80}$/.test(input.branchId) ? input.branchId : null,
-        externalReferenceId: normalized.externalReferenceId, sourceProduct: ctx.sourceProduct as SourceProduct,
+        externalReferenceId: normalized.externalReferenceId, sourceProduct: ctx.sourceProduct as SourceProduct, licenseSource: licenseSource ?? null,
         eventType: normalized.eventType, recipientNameEnc: this.crypto.encrypt(normalized.recipient.name),
         phoneEnc: this.crypto.encrypt(phoneE164), phoneHash, templateCode: normalized.templateCode,
         templateVariables: normalized.templateVariables as Prisma.InputJsonValue, scheduledAt: new Date(normalized.scheduledAt),

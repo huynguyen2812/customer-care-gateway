@@ -2,9 +2,9 @@
 // Lỗi đăng nhập từ callback SSO dùng dạng /#loi=<MÃ> (xử lý trong App).
 export type Route =
   | 'tong-quan' | 'khach-hang' | 'nguon-du-lieu' | 'kenh-zalo' | 'mau-tin-nhan'
-  | 'hang-doi' | 'tu-choi-nhan-tin' | 'nhat-ky' | 'cai-dat' | 'ho-so'
+  | 'hang-doi' | 'tu-choi-nhan-tin' | 'nhat-ky' | 'cai-dat' | 'ho-so' | 'tai-khoan-ket-noi' | 'giay-phep' | 'ket-noi-platform'
 
-export const ROUTES: Route[] = ['tong-quan', 'khach-hang', 'nguon-du-lieu', 'kenh-zalo', 'mau-tin-nhan', 'hang-doi', 'tu-choi-nhan-tin', 'nhat-ky', 'cai-dat', 'ho-so']
+export const ROUTES: Route[] = ['tong-quan', 'khach-hang', 'nguon-du-lieu', 'kenh-zalo', 'mau-tin-nhan', 'hang-doi', 'tu-choi-nhan-tin', 'nhat-ky', 'cai-dat', 'ho-so', 'tai-khoan-ket-noi', 'giay-phep', 'ket-noi-platform']
 
 export function readRoute(): Route {
   const raw = window.location.hash.replace(/^#\/?/, '')

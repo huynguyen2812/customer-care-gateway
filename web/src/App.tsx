@@ -18,6 +18,9 @@ import AuditLogs from './pages/AuditLogs'
 import Settings from './pages/Settings'
 import AdminProfile from './pages/AdminProfile'
 import NoPermission from './pages/NoPermission'
+import StandaloneSettings from './pages/StandaloneSettings'
+import LicensePage from './pages/LicensePage'
+import PlatformConnection from './pages/PlatformConnection'
 
 type Auth = { status: 'checking' } | { status: 'anonymous'; reason?: string } | { status: 'blocked'; reason: string } | { status: 'authenticated'; me: Me }
 
@@ -32,6 +35,8 @@ function takeLoginError(): string | undefined {
 const ROUTE_PERMISSION: Partial<Record<Route, Me['permissions'][number]>> = {
   'khach-hang': 'crm.customers.read', 'nguon-du-lieu': 'crm.sources.read', 'kenh-zalo': 'crm.zalo.read', 'mau-tin-nhan': 'crm.templates.read',
   'hang-doi': 'crm.jobs.read', 'tu-choi-nhan-tin': 'crm.optouts.read', 'nhat-ky': 'crm.audit.read', 'cai-dat': 'crm.settings.read',
+  'tai-khoan-ket-noi': 'crm.sources.read',
+  'ket-noi-platform': 'crm.settings.read',
 }
 
 export default function App() {
@@ -68,6 +73,9 @@ export default function App() {
     try { await api.logout() } finally { setAuth({ status: 'anonymous', reason: 'LOGGED_OUT' }) }
   }, [])
 
+  // Giấy phép & ghi công: xem được cả khi chưa đăng nhập.
+  if (route === 'giay-phep') return <LicensePage />
+
   if (auth.status === 'checking') {
     return (
       <div className="min-h-screen bg-[#F6F8F8] flex flex-col items-center justify-center gap-3 text-[#6B7280]" aria-busy="true">
@@ -76,12 +84,12 @@ export default function App() {
       </div>
     )
   }
-  if (auth.status === 'anonymous') return <Login reason={auth.reason} />
+  if (auth.status === 'anonymous') return <Login reason={auth.reason} onAuthenticated={() => setAuth({ status: 'checking' })} />
   if (auth.status === 'blocked') return <AccessBlocked reason={auth.reason} onLogout={() => void logout()} />
 
   const me = auth.me
   const needed = ROUTE_PERMISSION[route]
-  const allowed = !needed || me.permissions.includes(needed)
+  const allowed = (!needed || me.permissions.includes(needed)) && (!['tai-khoan-ket-noi', 'ket-noi-platform'].includes(route) || me.mode === 'standalone')
   const pages: Record<Route, React.ReactNode> = {
     'tong-quan': <Dashboard />,
     'khach-hang': <Customers />,
@@ -93,6 +101,9 @@ export default function App() {
     'nhat-ky': <AuditLogs />,
     'cai-dat': <Settings />,
     'ho-so': <AdminProfile onLogout={logout} />,
+    'tai-khoan-ket-noi': <StandaloneSettings />,
+    'giay-phep': <LicensePage />,
+    'ket-noi-platform': <PlatformConnection />,
   }
 
   return (

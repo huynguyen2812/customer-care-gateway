@@ -40,42 +40,56 @@ import { AccountSelectorService } from './delivery/account-selector.service';
 import { QuotaService } from './delivery/quota.service';
 import { ZaloAccountsService } from './crm/zalo-accounts.service';
 import { B2bSourceService } from './b2b/b2b-source.service';
+import { LocalCredentialsService } from './standalone/local-credentials.service';
+import { SourceConnectorClient } from './standalone/source-connector.client';
+import { SourceConnectorService } from './standalone/source-connector.service';
+import { DEPLOYMENT_MODE } from './standalone/deployment-mode';
 
+/** Controllers shared by both editions (tenant-scoped CRM API, signed care-job API, sender callbacks). */
+export const SHARED_CONTROLLERS = [CareJobsController, HealthController, CrmController, SenderHealthController];
+
+/** Providers shared by both editions. Platform-only services stay registered but are never reached in standalone. */
+export const SHARED_PROVIDERS = [
+  PrismaService,
+  CryptoService,
+  HmacAuthService,
+  InstallationGuard,
+  PlatformControlGuard,
+  InstallationsService,
+  CareJobsService,
+  B2bSourceService,
+  MockAdapter,
+  PersonalZaloAdapter,
+  ChannelRouterService,
+  TemplateService,
+  PetclinicClientService,
+  PetclinicSyncService,
+  SourceVerifierService,
+  WebhookOutboxService,
+  CareWorkerService,
+  WorkerRuntimeService,
+  MaintenanceService,
+  AdminAuthGuard,
+  AdminAuthService,
+  AdminService,
+  PlatformClientService,
+  CrmSessionService,
+  CrmAuthGuard,
+  CrmDataService,
+  TenantAccessService,
+  TenantLifecycleService,
+  AccountSelectorService,
+  QuotaService,
+  ZaloAccountsService,
+  LocalCredentialsService,
+  SourceConnectorClient,
+  SourceConnectorService,
+];
+
+/** VPS edition driven by Platform Admin (SSO, signed Platform events, operator console). */
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true })],
-  controllers: [InstallationsController, CareJobsController, HealthController, AdminAuthController, AdminController, CrmAuthController, CrmController, PlatformEventsController, SenderHealthController],
-  providers: [
-    PrismaService,
-    CryptoService,
-    HmacAuthService,
-    InstallationGuard,
-    PlatformControlGuard,
-    InstallationsService,
-    CareJobsService,
-    B2bSourceService,
-    MockAdapter,
-    PersonalZaloAdapter,
-    ChannelRouterService,
-    TemplateService,
-    PetclinicClientService,
-    PetclinicSyncService,
-    SourceVerifierService,
-    WebhookOutboxService,
-    CareWorkerService,
-    WorkerRuntimeService,
-    MaintenanceService,
-    AdminAuthGuard,
-    AdminAuthService,
-    AdminService,
-    PlatformClientService,
-    CrmSessionService,
-    CrmAuthGuard,
-    CrmDataService,
-    TenantAccessService,
-    TenantLifecycleService,
-    AccountSelectorService,
-    QuotaService,
-    ZaloAccountsService,
-  ],
+  controllers: [InstallationsController, AdminAuthController, AdminController, CrmAuthController, PlatformEventsController, ...SHARED_CONTROLLERS],
+  providers: [...SHARED_PROVIDERS, { provide: DEPLOYMENT_MODE, useValue: 'platform' }],
 })
 export class AppModule {}

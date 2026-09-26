@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Users, Database, MessageCircle, FileText, Clock,
   UserX, ScrollText, Settings, ChevronLeft, ChevronRight, CheckCircle2, PawPrint, X,
-  PauseCircle, AlertTriangle, Loader2,
+  PauseCircle, AlertTriangle, Loader2, KeyRound, BadgeCheck,
 } from 'lucide-react'
 import { cx } from './ui'
 import { AUTO_SEND_TEXT, autoSendState, useCrm, zaloSummary } from '@/lib/data'
@@ -10,7 +10,7 @@ import { initials } from '@/lib/format'
 import type { Route } from '@/routes'
 import type { Permission } from '@/lib/types'
 
-export const NAV: { id: Route; label: string; icon: typeof LayoutDashboard; permission: Permission }[] = [
+export const NAV: { id: Route; label: string; icon: typeof LayoutDashboard; permission: Permission; standaloneOnly?: boolean }[] = [
   { id: 'tong-quan', label: 'Tổng quan', icon: LayoutDashboard, permission: 'crm.dashboard.read' },
   { id: 'khach-hang', label: 'Khách hàng', icon: Users, permission: 'crm.customers.read' },
   { id: 'nguon-du-lieu', label: 'Nguồn dữ liệu', icon: Database, permission: 'crm.sources.read' },
@@ -20,6 +20,8 @@ export const NAV: { id: Route; label: string; icon: typeof LayoutDashboard; perm
   { id: 'tu-choi-nhan-tin', label: 'Từ chối nhận tin', icon: UserX, permission: 'crm.optouts.read' },
   { id: 'nhat-ky', label: 'Nhật ký', icon: ScrollText, permission: 'crm.audit.read' },
   { id: 'cai-dat', label: 'Cài đặt', icon: Settings, permission: 'crm.settings.read' },
+  { id: 'tai-khoan-ket-noi', label: 'Tài khoản & kết nối', icon: KeyRound, permission: 'crm.sources.read', standaloneOnly: true },
+  { id: 'ket-noi-platform', label: 'Kết nối Platform', icon: BadgeCheck, permission: 'crm.settings.read', standaloneOnly: true },
 ]
 
 const COLLAPSE_KEY = 'vetclinic-crm:sidebar-collapsed'
@@ -63,7 +65,7 @@ export default function Sidebar({ current, onNavigate, mobileOpen, onCloseMobile
         </div>
 
         <nav aria-label="Điều hướng chính" className="flex-1 py-3 overflow-y-auto">
-          {NAV.filter((n) => crm.can(n.permission)).map(({ id, label, icon: Icon }) => {
+          {NAV.filter((n) => crm.can(n.permission) && (!n.standaloneOnly || crm.me.mode === 'standalone')).map(({ id, label, icon: Icon }) => {
             const active = current === id
             return (
               <button

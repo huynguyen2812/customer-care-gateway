@@ -1,10 +1,11 @@
-import { ForbiddenException, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Optional, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { CrmSession, CrmTenant } from '@prisma/client';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../common/prisma.service';
 import { CryptoService } from '../common/crypto.service';
 import { CRM_PRODUCT_CODE, CrmRole, entitlementDenyCode, entitlementUsable, mapPlatformRoles, permissionsFor } from './crm.constants';
 import { PlatformClientService, PlatformCredential } from './platform-client.service';
+import { DEPLOYMENT_MODE, DeploymentMode } from '../standalone/deployment-mode';
 
 export type CrmContext = {
   sessionId: string;
@@ -24,7 +25,7 @@ const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 
 @Injectable()
 export class CrmSessionService {
-  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly platform: PlatformClientService) {}
+  constructor(private readonly prisma: PrismaService, private readonly crypto: CryptoService, private readonly platform: PlatformClientService, @Optional() @Inject(DEPLOYMENT_MODE) private readonly mode: DeploymentMode = 'platform') {}
 
   private secret(): string {
     const secret = process.env.CRM_SESSION_SECRET || '';
@@ -94,6 +95,7 @@ export class CrmSessionService {
   }
 
   private async recheck(session: CrmSession & { tenant: CrmTenant }): Promise<CrmSession> {
+    if (this.mode === 'standalone') return this.recheckLocal(session);
     const result = await this.platform.sessionCheck(this.credential(session.tenant), session.platformUserId);
     if (result.kind === 'DENIED') {
       await this.revoke(session.id, 'ACCESS_REVOKED');
@@ -109,5 +111,15 @@ export class CrmSessionService {
       throw new UnauthorizedException({ code: 'ACCESS_REVOKED', message: 'Tài khoản không còn quyền truy cập VETCLINIC CRM.' });
     }
     return this.prisma.crmSession.update({ where: { id: session.id }, data: { lastCheckedAt: new Date(), checkGraceUntil: result.graceUntil, roles: mapPlatformRoles(result.claims) } });
+  }
+
+  /** Standalone: the local user row is the source of truth (no Platform, no outage grace). */
+  private async recheckLocal(session: CrmSession): Promise<CrmSession> {
+    const user = await this.prisma.localUser.findFirst({ where: { id: session.platformUserId, tenantId: session.platformTenantId } });
+    if (!user || !user.active || user.passwordChangedAt > session.issuedAt) {
+      await this.revoke(session.id, 'ACCESS_REVOKED');
+      throw new UnauthorizedException({ code: 'ACCESS_REVOKED', message: 'Tài khoản không còn quyền truy cập VETCLINIC CRM.' });
+    }
+    return this.prisma.crmSession.update({ where: { id: session.id }, data: { lastCheckedAt: new Date(), roles: [user.role] } });
   }
 }

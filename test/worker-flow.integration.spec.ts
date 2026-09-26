@@ -58,7 +58,7 @@ describe('worker flow (real PostgreSQL + loopback HTTP)', () => {
     await prisma.messageTemplate.create({ data: { installationId: installation.id, code: 'PC_APPT_REMINDER_V1', body: 'Nhac lich cho {{petName}}', allowedVariables: ['petName'] } });
     const outbox = new WebhookOutboxService(prisma as any, crypto);
     const mock = new MockAdapter(); const personal = new PersonalZaloAdapter(crypto); const router = new ChannelRouterService(mock, personal);
-    const worker = new CareWorkerService(prisma as any, crypto, router, new SourceVerifierService(), outbox, new TemplateService(prisma as any), {} as any, new TenantAccessService(prisma as any), new AccountSelectorService(prisma as any, personal), new QuotaService(prisma as any), { revalidate: jest.fn(async () => false) } as any);
+    const worker = new CareWorkerService(prisma as any, crypto, router, new SourceVerifierService(), outbox, new TemplateService(prisma as any), {} as any, new TenantAccessService(prisma as any), new AccountSelectorService(prisma as any, personal), new QuotaService(prisma as any), { revalidate: jest.fn(async () => false) } as any, {} as any);
     expect(await worker.processNext('integration-worker')).toBe(true);
     expect((await prisma.careJob.findUniqueOrThrow({ where: { id: String(created.id) } })).status).toBe('SENT');
     expect(await outbox.deliverNext()).toBe(true); expect(callbackCount).toBe(1);

@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../common/prisma.service';
 import { CRM_PRODUCT_CODE, CRM_STATE_COOKIE, USABLE_ENTITLEMENTS, entitlementUsable, mapPlatformRoles } from './crm.constants';
-import { Crm, CrmAuthGuard, crmSessionCookieName, readCookie, RequirePermission } from './crm-auth.guard';
+import { Crm, CrmAuthGuard, crmCookieSecure, crmSessionCookieName, readCookie, RequirePermission } from './crm-auth.guard';
 import { CrmContext, CrmSessionService } from './crm-session.service';
 import { PlatformClientService, PlatformDeniedError } from './platform-client.service';
 
@@ -12,7 +12,7 @@ const STATE_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const CODE_PATTERN = /^[A-Za-z0-9._~-]{16,256}$/;
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9._-]{4,100}$/;
 
-function secure() { return process.env.NODE_ENV === 'production'; }
+function secure() { return crmCookieSecure(); }
 export function crmPublicOrigin(): string { return (process.env.CRM_PUBLIC_ORIGIN || '').replace(/\/$/, ''); }
 export function crmCallbackBase(): string { return `${crmPublicOrigin()}/api/v1/crm`; }
 export function platformWebOrigin(): string {

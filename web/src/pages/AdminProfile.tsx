@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ExternalLink, KeyRound, Monitor, LogOut, ShieldCheck } from 'lucide-react'
-import { Badge, Button, Field, Input, PageHeader, cardClass, cx } from '@/components/ui'
+import { Badge, Button, Field, Input, PageHeader, cardClass, cx, useToast } from '@/components/ui'
+import { api } from '@/lib/api'
 import { useCrm } from '@/lib/data'
 import { fmtDateTime, initials } from '@/lib/format'
 
@@ -17,7 +18,29 @@ function browserLabel(): string {
   return os ? `${browser} — ${os}` : browser
 }
 
-/** Hồ sơ người dùng CRM. Mật khẩu thuộc tài khoản VETCLINIC (Platform) — CRM không lưu và không đổi mật khẩu. */
+/** Bản chạy trên PC: đổi mật khẩu tài khoản cục bộ (đăng xuất mọi phiên khác của tài khoản này). */
+function LocalPasswordForm() {
+  const toast = useToast()
+  const [form, setForm] = useState({ current: '', next: '', confirm: '' })
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (form.next !== form.confirm) { toast('error', 'Mật khẩu mới nhập lại không khớp.'); return }
+    setBusy(true)
+    try { await api.changePassword(form.current, form.next); await api.me(); setForm({ current: '', next: '', confirm: '' }); toast('success', 'Đã đổi mật khẩu. Các phiên khác của tài khoản này đã bị đăng xuất.') }
+    catch (err) { toast('error', err instanceof Error ? err.message : 'Không đổi được mật khẩu.') } finally { setBusy(false) }
+  }
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <Field label="Mật khẩu hiện tại" htmlFor="pw-current"><Input id="pw-current" type="password" autoComplete="current-password" value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} required /></Field>
+      <Field label="Mật khẩu mới (ít nhất 10 ký tự)" htmlFor="pw-next"><Input id="pw-next" type="password" autoComplete="new-password" minLength={10} value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} required /></Field>
+      <Field label="Nhập lại mật khẩu mới" htmlFor="pw-confirm"><Input id="pw-confirm" type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} required /></Field>
+      <Button type="submit" variant="outline" loading={busy}>Đổi mật khẩu</Button>
+    </form>
+  )
+}
+
+/** Hồ sơ người dùng CRM. Bản VPS: mật khẩu thuộc tài khoản VETCLINIC (Platform). Bản PC: tài khoản cục bộ. */
 export default function AdminProfile({ onLogout }: { onLogout: () => Promise<void> }) {
   const { me } = useCrm()
   const [loggingOut, setLoggingOut] = useState(false)
@@ -41,7 +64,7 @@ export default function AdminProfile({ onLogout }: { onLogout: () => Promise<voi
             <div className="text-[12px] text-[#6B7280]">{role}{me.tenant.name ? ` · ${me.tenant.name}` : ''}</div>
           </div>
         </div>
-        <Field label="Tên đăng nhập VETCLINIC" htmlFor="profile-username">
+        <Field label={me.mode === 'standalone' ? 'Tên đăng nhập' : 'Tên đăng nhập VETCLINIC'} htmlFor="profile-username">
           <Input id="profile-username" value={me.user.username || '—'} readOnly disabled className="text-[13px]" />
         </Field>
         <div className="mt-4">
@@ -54,10 +77,12 @@ export default function AdminProfile({ onLogout }: { onLogout: () => Promise<voi
 
       <div className={cx(cardClass, 'p-5')}>
         <div className="flex items-center gap-2 text-[14px] font-semibold text-[#172B2A] mb-2"><KeyRound size={15} className="text-[#0F766E]" />Mật khẩu</div>
+        {me.mode === 'standalone' ? <LocalPasswordForm /> : <>
         <p className="text-[12px] text-[#6B7280] mb-3">Bạn đăng nhập bằng tài khoản VETCLINIC. Mật khẩu được quản lý tại trang tài khoản VETCLINIC, CRM không lưu mật khẩu của bạn.</p>
         {me.platformAccountUrl
           ? <a href={me.platformAccountUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 h-8 px-3 border border-[#0F766E] text-[#0F766E] hover:bg-[#F0FDFA] text-[12px] font-medium rounded-lg">Đổi mật khẩu tại tài khoản VETCLINIC <ExternalLink size={12} /></a>
           : <p className="text-[11px] text-[#9CA3AF]">Liên kết trang tài khoản VETCLINIC chưa được cấu hình.</p>}
+        </>}
       </div>
 
       <div className={cx(cardClass, 'p-5')}>
@@ -70,8 +95,10 @@ export default function AdminProfile({ onLogout }: { onLogout: () => Promise<voi
           </div>
           <span className="text-[10px] bg-[#F0FDF4] text-[#16A34A] px-2 py-0.5 rounded-full font-medium">Phiên này</span>
         </div>
-        <p className="flex items-start gap-1.5 text-[11px] text-[#9CA3AF] mt-3"><ShieldCheck size={12} className="shrink-0 mt-0.5 text-[#0F766E]" />Quyền truy cập được kiểm tra lại định kỳ với tài khoản VETCLINIC; khi bị thu hồi, phiên sẽ kết thúc ngay.</p>
+        <p className="flex items-start gap-1.5 text-[11px] text-[#9CA3AF] mt-3"><ShieldCheck size={12} className="shrink-0 mt-0.5 text-[#0F766E]" />{me.mode === 'standalone' ? 'Khi chủ doanh nghiệp khóa tài khoản, đổi vai trò hoặc đặt lại mật khẩu, phiên sẽ kết thúc ngay.' : 'Quyền truy cập được kiểm tra lại định kỳ với tài khoản VETCLINIC; khi bị thu hồi, phiên sẽ kết thúc ngay.'}</p>
       </div>
+
+      <p className="text-[11px] text-[#9CA3AF]"><a href="#/giay-phep" className="hover:underline">Giấy phép và ghi công phần mềm</a></p>
 
       <Button variant="danger" icon={<LogOut size={14} />} loading={loggingOut} onClick={() => { setLoggingOut(true); void onLogout().finally(() => setLoggingOut(false)) }}>Đăng xuất</Button>
     </div>

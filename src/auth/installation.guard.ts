@@ -20,7 +20,9 @@ export class InstallationGuard implements CanActivate {
     if (!['ACTIVE', 'ROTATING_OUT'].includes(credential.status) || credential.revokedAt || (credential.expiresAt && credential.expiresAt <= new Date())) throw new UnauthorizedException('Invalid request authentication');
     const installation = credential.installation;
     if (installation.status !== 'ACTIVE' || installation.paused || installation.revokedAt || (installation.expiresAt && installation.expiresAt <= new Date())) throw new UnauthorizedException('Invalid request authentication');
-    this.hmac.verify(credential.secretHash, signature, `${req.method}\n${req.path}\n${timestamp}\n${nonce}\n${sha256(req.rawBody || Buffer.alloc(0))}`);
+    // Self-issued (standalone) credentials keep the signing key encrypted; older rows use secretHash as the key.
+    const key = credential.signingKeyEnc ? this.crypto.decrypt(credential.signingKeyEnc) : credential.secretHash;
+    this.hmac.verify(key, signature, `${req.method}\n${req.path}\n${timestamp}\n${nonce}\n${sha256(req.rawBody || Buffer.alloc(0))}`);
     try { await this.prisma.requestNonce.create({ data: { installationId: installation.id, nonce } }); }
     catch { throw new UnauthorizedException('Invalid request authentication'); }
     req.installationContext = { installation, installationId: installation.id, tenantId: installation.tenantId, sourceProduct: installation.sourceProduct, scopes: installation.scopes };

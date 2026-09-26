@@ -1,0 +1,27 @@
+{
+  "_comment": "Công cụ bên thứ ba cho bản PC. build.ps1 từ chối file có SHA-256 khác. Nguồn và cách kiểm: docs/standalone/ (TOOLS-MANIFEST).",
+  "node": {
+    "file": "node-v24.21.0-win-x64.zip",
+    "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+    "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
+    "verifiedBy": "nodejs.org SHASUMS256.txt"
+  },
+  "postgresql": {
+    "file": "postgresql-17.11-1-windows-x64-binaries.zip",
+    "url": "https://get.enterprisedb.com/postgresql/postgresql-17.11-1-windows-x64-binaries.zip",
+    "sha256": "6eabdf00d2893713b75db4336a23c3fdf505f056e217ec6e2e95d901750cfea3",
+    "verifiedBy": "pinned at first download (EDB publishes no checksum)"
+  },
+  "winsw": {
+    "file": "WinSW-x64.exe",
+    "url": "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe",
+    "sha256": "05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da",
+    "verifiedBy": "pinned at first download (no official checksum, unsigned)"
+  },
+  "innosetup": {
+    "file": "innosetup-6.7.3.exe",
+    "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe",
+    "sha256": "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732",
+    "verifiedBy": "GitHub release digest + Authenticode (Pyrsys B.V.)"
+  }
+}

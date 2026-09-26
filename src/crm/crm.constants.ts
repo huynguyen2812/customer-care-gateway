@@ -16,6 +16,8 @@ export const CRM_PERMISSIONS = [
   'crm.optouts.read', 'crm.optouts.manage',
   'crm.audit.read',
   'crm.settings.read', 'crm.settings.manage',
+  // Standalone PC edition only (local staff accounts); owner-only.
+  'crm.users.manage',
 ] as const;
 export type CrmPermission = (typeof CRM_PERMISSIONS)[number];
 
@@ -28,7 +30,7 @@ const READ: CrmPermission[] = ['crm.dashboard.read', 'crm.customers.read', 'crm.
  */
 export const ROLE_PERMISSIONS: Record<CrmRole, readonly CrmPermission[]> = {
   CRM_OWNER: CRM_PERMISSIONS,
-  CRM_ADMIN: CRM_PERMISSIONS.filter((p) => p !== 'crm.sources.manage'),
+  CRM_ADMIN: CRM_PERMISSIONS.filter((p) => p !== 'crm.sources.manage' && p !== 'crm.users.manage'),
   CRM_STAFF: [...READ, 'crm.sources.read', 'crm.zalo.read', 'crm.jobs.create', 'crm.jobs.cancel'],
   CRM_VIEWER: READ,
 };

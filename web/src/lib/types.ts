@@ -12,8 +12,11 @@ export type Permission =
   | 'crm.dashboard.read' | 'crm.customers.read' | 'crm.customers.manage' | 'crm.sources.read' | 'crm.sources.manage'
   | 'crm.zalo.read' | 'crm.zalo.manage' | 'crm.templates.read' | 'crm.templates.manage' | 'crm.jobs.read' | 'crm.jobs.cancel'
   | 'crm.optouts.read' | 'crm.optouts.manage' | 'crm.audit.read' | 'crm.settings.read' | 'crm.settings.manage'
+  | 'crm.jobs.create' | 'crm.users.manage'
 
 export interface Me {
+  /** Chỉ có ở bản chạy trên PC (tài khoản cục bộ, không qua Platform). */
+  mode?: 'standalone'
   user: { platformUserId: string; displayName: string | null; username: string | null }
   tenant: { id: string; name: string | null }
   roles: string[]
@@ -23,6 +26,31 @@ export interface Me {
   entitlement: { status: string; planCode: string | null; expiresAt: string | null }
   platformAccountUrl: string | null
 }
+
+// ---------- Bản chạy trên PC (standalone) ----------
+export interface LocalStatus { mode: 'standalone'; setupRequired: boolean; businessName: string | null }
+export interface LocalUser { id: string; username: string; displayName: string | null; role: string; active: boolean; locked: boolean; lastLoginAt: string | null; createdAt: string }
+export interface LocalCredential { clientId: string; secretLast4: string; status: string; expiresAt: string | null; revokedAt: string | null; createdAt: string; usable: boolean }
+export interface RevealedCredential { clientId: string; clientSecret: string }
+export interface SourceConnectorInfo {
+  installationId: string; configured: boolean
+  connection: null | { sourceKind: 'PETCLINIC' | 'B2B_SALE' | 'EXTERNAL' | null; apiBaseUrl: string; appointmentsEnabled: boolean; receivablesEnabled: boolean; allowedBranchIds: string[]; reminderLeadMinutes: number; active: boolean; lastSyncAt: string | null; lastSyncStatus: string | null; lastError: string | null }
+}
+export interface PlatformStatus {
+  mode: 'NOT_ACTIVATED' | 'MANAGED' | 'BYPASS'
+  licenseBypass: boolean
+  allowed: boolean
+  reason: string | null
+  platformConfigured: boolean
+  device: null | { deviceIdMasked: string; status: string; pairedAt: string | null; lastValidatedAt: string | null; lastSyncAt: string | null; lastSyncError: string | null; licensedUntil: string | null; configExpiresAt: string | null; offlineGraceUntil: string | null; offlineRemainingHours: number | null; configRevision: number }
+  /** Unfinished activation (device PENDING); null otherwise. */
+  activation: null | { state: 'IN_PROGRESS' | 'NOT_BOUND' | 'RETRY_SAME_CODE' | 'RECOVERY_REQUIRED'; lastError: string | null }
+  license: null | { businessName: string; planCode: string; planStatus: string; validUntil: string | null; sources: { product: string; allowedBranchIds: string[]; maxBranches: number | null }[]; features: { appointmentReminder: boolean; debtReminder: boolean }; dailyQuota: number; reminderLeadMinutes: number; quietHours: { start: string; end: string; timezone: string } }
+}
+/** Result of the confirmed local reset: A (this PC) and B (Platform record) reported separately. */
+export interface PlatformResetResponse extends PlatformStatus { reset: null | { local: 'UNPAIRED'; platform: 'PLATFORM_UNPAIRED' | 'PLATFORM_ALREADY_REVOKED' | 'PLATFORM_DEVICE_UNKNOWN' | 'PLATFORM_NOT_CONFIRMED' } }
+export interface BuildInfo { version: string; crmCommit: string | null; senderCommit: string | null; builtAt: string | null; dirty: boolean | null }
+export interface SourceSyncResult { dryRun: boolean; scanned: number; eligible: number; created: number; cancelled: number; skippedByReason: Record<string, number> }
 
 export interface Overview {
   period: string

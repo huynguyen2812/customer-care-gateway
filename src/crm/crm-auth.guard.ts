@@ -24,8 +24,16 @@ export function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
+/**
+ * Secure cookies in production, except when the public origin is plain http (standalone PC edition on
+ * http://127.0.0.1): a Secure/__Host- cookie would not be reliable there.
+ */
+export function crmCookieSecure(): boolean {
+  return process.env.NODE_ENV === 'production' && !(process.env.CRM_PUBLIC_ORIGIN || '').startsWith('http://');
+}
+
 export function crmSessionCookieName(): string {
-  return process.env.NODE_ENV === 'production' ? CRM_SESSION_COOKIE_SECURE : CRM_SESSION_COOKIE;
+  return crmCookieSecure() ? CRM_SESSION_COOKIE_SECURE : CRM_SESSION_COOKIE;
 }
 
 @Injectable()
