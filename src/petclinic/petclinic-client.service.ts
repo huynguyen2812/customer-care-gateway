@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PetclinicConnection } from '@prisma/client';
 import { CryptoService } from '../common/crypto.service';
+import { dayKey } from '../common/day-key';
 import { normalizeAppointment, PetclinicAppointment } from './petclinic.types';
 
 function safeApiUrl(base: string, path: string, params: Record<string, string>): URL {
@@ -17,13 +18,13 @@ function safeApiUrl(base: string, path: string, params: Record<string, string>):
 export class PetclinicClientService {
   constructor(private readonly crypto: CryptoService) {}
 
-  async list(connection: PetclinicConnection, from: Date, to: Date): Promise<PetclinicAppointment[]> {
+  async list(connection: PetclinicConnection, from: Date, to: Date, timeZone = 'Asia/Ho_Chi_Minh'): Promise<PetclinicAppointment[]> {
     const token = this.token(connection);
     const out: PetclinicAppointment[] = [];
     for (let page = 0; page < 100; page++) {
       const url = safeApiUrl(connection.apiBaseUrl, connection.appointmentsPath, {
         page: String(page), size: '1000', sort: 'appointmentTime,asc',
-        from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10),
+        from: dayKey(from, timeZone), to: dayKey(to, timeZone),
       });
       const response = await fetch(url, { headers: { authorization: `Bearer ${token}`, accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
       if (!response.ok) throw new Error(`PETCLINIC_HTTP_${response.status}`);

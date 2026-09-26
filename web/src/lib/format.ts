@@ -1,13 +1,13 @@
 import type { CareJobStatus, ConsentStatus, InstallationSummary, SourceProduct } from './types'
 
-const dateTimeFmt = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-const dateFmt = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-const timeFmt = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' })
 const numberFmt = new Intl.NumberFormat('vi-VN')
 
-export const fmtDateTime = (v?: string | null) => (v ? dateTimeFmt.format(new Date(v)) : '—')
-export const fmtDate = (v?: string | null) => (v ? dateFmt.format(new Date(v)) : '—')
-export const fmtTime = (v?: string | null) => (v ? timeFmt.format(new Date(v)) : '—')
+const DEFAULT_TIME_ZONE = 'Asia/Ho_Chi_Minh'
+const formatter = (options: Intl.DateTimeFormatOptions, timeZone = DEFAULT_TIME_ZONE) => new Intl.DateTimeFormat('vi-VN', { ...options, timeZone })
+
+export const fmtDateTime = (v?: string | null, timeZone = DEFAULT_TIME_ZONE) => (v ? formatter({ day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }, timeZone).format(new Date(v)) : '—')
+export const fmtDate = (v?: string | null, timeZone = DEFAULT_TIME_ZONE) => (v ? formatter({ day: '2-digit', month: '2-digit', year: 'numeric' }, timeZone).format(new Date(v)) : '—')
+export const fmtTime = (v?: string | null, timeZone = DEFAULT_TIME_ZONE) => (v ? formatter({ hour: '2-digit', minute: '2-digit' }, timeZone).format(new Date(v)) : '—')
 export const fmtNumber = (v: number) => numberFmt.format(v)
 
 /** Nguồn dữ liệu có thể mở rộng: thêm sản phẩm mới chỉ cần khai báo ở đây. */

@@ -8,6 +8,8 @@ import { PetclinicSyncService } from '../petclinic/petclinic-sync.service';
 import { CrmContext } from './crm-session.service';
 import { entitlementUsable } from './crm.constants';
 import { maskPhone, redact, redactText } from './crm-redact';
+import { dayKey } from '../common/day-key';
+import { localDateStartUtc, shiftDateKey } from '../common/zoned-time';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OPAQUE = /^[0-9a-f]{32}$/;
@@ -53,7 +55,10 @@ export class CrmDataService {
   async overview(ctx: CrmContext, period: string) {
     const ids = await this.installationIds(ctx);
     const days = period === 'today' ? 1 : period === '30d' ? 30 : 7;
-    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - (days - 1));
+    const timeZone = ctx.tenant.timezone || 'Asia/Ho_Chi_Minh';
+    const today = dayKey(new Date(), timeZone);
+    const firstDay = shiftDateKey(today, -(days - 1)) || today;
+    const start = localDateStartUtc(firstDay, timeZone) || new Date(0);
     const scope = { installationId: { in: ids } };
     const [queued, processing, sent, failed, cancelled, optedOut, upcomingCount, windowRows, upcoming, recent, kill] = await Promise.all([
       this.prisma.careJob.count({ where: { ...scope, status: 'QUEUED' } }),
@@ -69,9 +74,9 @@ export class CrmDataService {
       this.prisma.systemSetting.findUnique({ where: { key: 'kill_switch' } }),
     ]);
     const buckets = new Map<string, { date: string; sent: number; failed: number }>();
-    for (let i = 0; i < days; i++) { const d = new Date(start); d.setDate(start.getDate() + i); buckets.set(d.toDateString(), { date: d.toISOString(), sent: 0, failed: 0 }); }
+    for (let i = 0; i < days; i++) { const key = shiftDateKey(firstDay, i)!; buckets.set(key, { date: localDateStartUtc(key, timeZone)!.toISOString(), sent: 0, failed: 0 }); }
     for (const r of windowRows) {
-      const when = r.status === 'SENT' ? r.sentAt : r.updatedAt; const b = when && buckets.get(new Date(when).toDateString());
+      const when = r.status === 'SENT' ? r.sentAt : r.updatedAt; const b = when && buckets.get(dayKey(new Date(when), timeZone));
       if (b) { if (r.status === 'SENT') b.sent++; else b.failed++; }
     }
     return {
@@ -200,8 +205,11 @@ export class CrmDataService {
     else if (JOB_STATUSES.includes(group as CareJobStatus)) where.status = group as CareJobStatus;
     if (q.installationId) { if (!ids.includes(String(q.installationId))) return { items: [], total: 0, page: 1, pageSize: 20, stats: await this.jobStats(ids) }; where.installationId = String(q.installationId); }
     if (q.templateCode) where.templateCode = String(q.templateCode).slice(0, 100);
-    const from = q.from ? new Date(`${q.from}T00:00:00`) : null; const to = q.to ? new Date(`${q.to}T23:59:59.999`) : null;
-    if ((from && !Number.isNaN(+from)) || (to && !Number.isNaN(+to))) where.scheduledAt = { ...(from && !Number.isNaN(+from) ? { gte: from } : {}), ...(to && !Number.isNaN(+to) ? { lte: to } : {}) };
+    const timeZone = ctx.tenant.timezone || 'Asia/Ho_Chi_Minh';
+    const from = q.from ? localDateStartUtc(String(q.from), timeZone) : null;
+    const toKey = q.to ? shiftDateKey(String(q.to), 1) : null;
+    const to = toKey ? localDateStartUtc(toKey, timeZone) : null;
+    if (from || to) where.scheduledAt = { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) };
     const search = String(q.q || '').trim().slice(0, 100);
     if (search) where.OR = [{ externalReferenceId: { contains: search, mode: 'insensitive' } }, { eventType: { contains: search, mode: 'insensitive' } }, { templateCode: { contains: search, mode: 'insensitive' } }];
     const p = page(q);

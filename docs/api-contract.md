@@ -40,6 +40,9 @@ explicitly managed connection.
 `{"commit":true}`. Eligible appointments must be scheduled/confirmed, belong to an approved branch
 and carry explicit messaging consent. A pilot allowlist is enforced only when one is configured. A
 committed sync stores the appointment time and revision snapshot in an idempotent reminder job.
+Appointment timestamps must be ISO-8601 instants with an explicit `Z` or `±HH:MM` offset. CRM rejects
+offset-less local timestamps instead of guessing a timezone. For example, 18:00 in Vietnam must be
+sent as `2026-09-25T18:00:00+07:00` or the equivalent UTC instant `2026-09-25T11:00:00Z`.
 Immediately before delivery, the worker calls PETCLINIC's dedicated revalidation endpoint with
 `expectedAppointmentTime` and `expectedRevision`; only `eligible=true` with `reasonCode=ELIGIBLE`
 may send. Network errors, malformed responses, missing snapshots, cancellation, rescheduling or

@@ -47,7 +47,7 @@ export class PetclinicSyncService {
     const to = input.to ? new Date(String(input.to)) : new Date(Date.now() + 7 * 86400_000);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from || to.getTime() - from.getTime() > 31 * 86400_000) throw new ConflictException('Invalid sync range');
     try {
-      const appointments = await this.client.list(connection, from, to);
+      const appointments = await this.client.list(connection, from, to, installation.timezone);
       const decisions = appointments.map((appointment) => this.decide(connection.allowedBranchIds, connection.pilotAllowedPhoneHashes, appointment));
       let created = 0; let cancelled = 0;
       if (!dryRun) {
